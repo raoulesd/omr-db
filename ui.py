@@ -10,10 +10,14 @@ import cv2.aruco as aruco
 import numpy as np
 import argparse
 
+# Switches
 DEBUG = 0
 TESSERACT = 0
 DB9 = 0
 DBIYO = 0
+
+# Sensitivity. Higher means more grey is needed to get noted.
+PERC = 32.0
 
 # Add some argument parsing
 parser = argparse.ArgumentParser()
@@ -23,8 +27,8 @@ parser.add_argument("-d", "--debug", help="show debugging output",
                     action="store_true")
 parser.add_argument("-o", "--ocr", help="enable tesseract",
                     action="store_true")
-parser.add_argument("-p", "--profile", type=str, choices=['db9','dbiyo'],
-                    help="profile to use for reading scores")
+parser.add_argument("-p", "--profile", type=str, choices=['db9','dbiyo'], 
+            default='db9',         help="profile to use for reading scores")
 args = parser.parse_args()
 if args.verbose:
     print("verbosity turned on")
@@ -54,12 +58,29 @@ if DB9 == 1:
     COLUMNS = 9
     ROWS = 20
     ANSWERS = 3
+    # Where to print the results we read
     PRINTZ = 10.8
     PRINTT = 11.0
-    PERC = 32.0
+    # Row and column spacing to find the bubbles
+    COLDIM_X = 49.4
+    COLDIM_Y = 62.0
+    COLSPACE = 78.5
+    SPACING_X = 25.50
+    SPACING_Y = 20.15
 
-#PRINTZ = 9.7
-#PRINTT = 10.5
+if DBIYO == 1:
+    COLUMNS = 9
+    ROWS = 20
+    ANSWERS = 3
+    # Where to print the results we read
+    PRINTZ = 9.7
+    PRINTT = 10.5
+    # Row and column spacing to find the bubbles
+    COLDIM_X = 68.4
+    COLDIM_Y = 34.5
+    COLSPACE = 140.2
+    SPACING_X = 38.39
+    SPACING_Y = 22.72
 
 if __name__ == '__main__':
     paths = ["processed", "toscan", "errored"]
@@ -136,10 +157,10 @@ if __name__ == '__main__':
                 cv2.imread("./markers/bottom_right.png", cv2.IMREAD_GRAYSCALE)]
 
         scaling = [869.0, 840.0]  # scaling factor for 8.5in. x 11in. paper
-        columns = [[49.4 / scaling[0], 62.0 / scaling[1]]]  # dimensions of the columns of bubbles
-        colspace = 78.5 / scaling[0]
+        columns = [[COLDIM_X / scaling[0], COLDIM_Y / scaling[1]]]  # dimensions of the columns of bubbles
+        colspace = COLSPACE / scaling[0]
         radius = 7.0 / scaling[0]  # radius of the bubbles
-        spacing = [25.50 / scaling[0], 20.15 / scaling[1]]  # spacing of the rows and columns
+        spacing = [SPACING_X / scaling[0], SPACING_Y / scaling[1]]  # spacing of the rows and columns
 
         # Load the image from file
         img = cv2.imread(filename)
@@ -282,7 +303,7 @@ if __name__ == '__main__':
             cv2.putText(img, str(boulders[i][1]), (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 190, 0), 2)
 
             x2 = int((columns[0][0] + colspace * PRINTT) * dimensions[0] + corners[0][0])
-            cv2.putText(img, str(boulders[i][2]), (x2, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 0), 2)
+            cv2.putText(img, str(boulders[i][2]), (x2, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 190, 0), 2)
 
         #return img, boulders
         return img, boulders, participant_name, participant_number, participant_gender
