@@ -102,7 +102,7 @@ if __name__ == '__main__':
 
 
     def get_next_file(isInitialization):
-        global filename, fn_nopath, number, img, boulders, amountZT, triesZT, frame, data, texture_data, participant_name ,participant_number, participant_gender
+        global filename, fn_nopath, number, img, boulders, amountZT, triesZT, frame, data, texture_data, participant_name ,participant_number, participant_birthyear, participant_gender
         if not isInitialization:
             shutil.move(filename, "./processed", copy_function=shutil.copy2)
 
@@ -119,7 +119,7 @@ if __name__ == '__main__':
         print(filename)
         print(fn_nopath)
         print(number)
-        img, boulders, participant_name, participant_number, participant_gender = read_file(filename)
+        img, boulders, participant_name, participant_number, participant_birthyear, participant_gender = read_file(filename)
         amountZT, triesZT = getAmountAndTries(boulders)
 
         scale_down = 0.6
@@ -137,7 +137,8 @@ if __name__ == '__main__':
                 update_amount_and_tries()
             dpg.set_value("user_name", f"{participant_name}")
             dpg.set_value("user_number", f"{participant_number}")
-            dpg.set_value("gender", f"{participant_gender}")
+            dpg.set_value("user_birthyear", f"{participant_birthyear}")
+            dpg.set_value("user_gender", f"{participant_gender}")
         except:
             print("Booting up")
 
@@ -259,6 +260,7 @@ if __name__ == '__main__':
         else:
             participant_number = number
             participant_name = "James"
+            participant_birthyear = "1970"
             participant_gender = "M"
 
         # calculate dimensions for scaling
@@ -306,7 +308,7 @@ if __name__ == '__main__':
             cv2.putText(img, str(boulders[i][2]), (x2, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 190, 0), 2)
 
         #return img, boulders
-        return img, boulders, participant_name, participant_number, participant_gender
+        return img, boulders, participant_name, participant_number, participant_birthyear, participant_gender
 
 
     def getAmountAndTries(boulders):
@@ -323,11 +325,12 @@ if __name__ == '__main__':
 
 
     def export_to_csv(sender, callback):
-        global boulders, amountZT, triesZT, filename, fn_nopath, participant_name, participant_number, participant_gender
+        global boulders, amountZT, triesZT, filename, fn_nopath, participant_name, participant_number, participant_birthyear, participant_gender
         p_name = dpg.get_value("user_name")
         p_number = dpg.get_value("user_number")
-        p_gender = dpg.get_value("gender")
-        exportString = f"{p_name},{p_number},{p_gender},"
+        p_gender = dpg.get_value("user_gender")
+        p_birthyear = dpg.get_value("user_birthyear")
+        exportString = f"{p_name},{p_number},{p_gender},{p_birthyear},"
 #        exportString += filename[9:]
         exportString += fn_nopath
         amountZT = [0, 0]
@@ -391,8 +394,10 @@ if __name__ == '__main__':
                     dpg.add_input_text(tag=f"user_name", default_value=participant_name)
                     dpg.add_text(f"Nummer kandidaat:")
                     dpg.add_input_text(tag=f"user_number", default_value=participant_number)
+                    dpg.add_text(f"Geboortejaar kandidaat:")
+                    dpg.add_input_text(tag=f"user_birthyear", default_value=participant_birthyear)
                     dpg.add_text(f"Geslacht kandidaat:")
-                    dpg.add_input_text(tag=f"gender", default_value=participant_gender)
+                    dpg.add_input_text(tag=f"user_gender", default_value=participant_gender)
                     with dpg.table(header_row=False):
                         dpg.add_table_column(width_fixed=True)
                         dpg.add_table_column(width_fixed=True)
