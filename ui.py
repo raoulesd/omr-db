@@ -6,11 +6,58 @@ from genericpath import isfile
 import dearpygui.dearpygui as dpg
 import cv2 as cv
 import cv2 as cv2
+import cv2.aruco as aruco
 import numpy as np
+import argparse
+
+DEBUG = 0
+TESSERACT = 0
+DB9 = 0
+DBIYO = 0
+
+# Add some argument parsing
+parser = argparse.ArgumentParser()
+parser.add_argument("-v", "--verbose", help="increase output verbosity",
+                    action="store_true")
+parser.add_argument("-d", "--debug", help="show debugging output",
+                    action="store_true")
+parser.add_argument("-o", "--ocr", help="enable tesseract",
+                    action="store_true")
+parser.add_argument("-p", "--profile", type=str, choices=['db9','dbiyo'],
+                    help="profile to use for reading scores")
+args = parser.parse_args()
+if args.verbose:
+    print("verbosity turned on")
+
+if args.debug:
+    print("debug turned on")
+    DEBUG = 1
+
+if args.ocr:
+    print("tesseract enabled")
+    TESSERACT = 1
+
+if args.profile:
+    if args.profile == 'db9':
+        DB9 = 1
+    elif args.profile == 'dbiyo':
+        DBIYO = 1
+    else:
+        DB9 = 1
+
+
+if TESSERACT == 1:
+    import pytesseract
+    from pytesseract import image_to_string
 
 COLUMNS = 9
 ROWS = 20
 ANSWERS = 3
+#PRINTZ = 9.7
+#PRINTT = 10.5
+PRINTZ = 10.8
+PRINTT = 11.0
+PERC = 30.0
 
 if __name__ == '__main__':
     paths = ["processed", "toscan", "errored"]
@@ -27,16 +74,26 @@ if __name__ == '__main__':
     csvFile = open("results.csv", "a")
 
     dpg.create_context()
-    dpg.create_viewport(title='Review scores', width=1400, height=1000)
+    dpg.create_viewport(title='Review scores', width=1800, height=1400)
     dpg.setup_dearpygui()
 
 
     def get_next_file(isInitialization):
-        global filename, img, boulders, amountZT, triesZT, frame, data, texture_data
+        global filename, img, boulders, amountZT, triesZT, frame, data, texture_data, participant_name ,participant_number, participant_birthyear, participant_gender
         if not isInitialization:
             shutil.move(filename, "./processed", copy_function=shutil.copy2)
-        filename = fileList.pop()
-        img, boulders = read_file(filename)
+
+        path = "./toscan"
+        fileList = [join(path, f) for f in os.listdir(path) if isfile(join(path, f))]
+        if len(fileList) == 0:
+            exit(0)
+        filename = fileList.pop(0)
+        fn = filename.split('.')[0]
+        fnumber = fn.split('_')[-1]
+        print(filename)
+        print(fn)
+        print(fnumber)
+        img, boulders, participant_name, participant_number, participant_birthyear, participant_gender = read_file(filename)
         amountZT, triesZT = getAmountAndTries(boulders)
 
         scale_down = 0.6
@@ -52,15 +109,19 @@ if __name__ == '__main__':
                 dpg.set_value(f"zone_{i}", str(boulders[i - 1][1]))
                 dpg.set_value(f"tops_{i}", str(boulders[i - 1][2]))
                 update_amount_and_tries()
-                dpg.set_value("user_name", "")
+            dpg.set_value("user_name", f"{participant_name}")
+            dpg.set_value("user_number", f"{participant_number}")
+            dpg.set_value("birthyear", f"{participant_birthyear}")
+            dpg.set_value("gender", f"{participant_gender}")
         except:
-            print("first time")
+            print("Booting up")
 
 
     def read_file(filename):
-        COLUMNS = 9
-        ROWS = 30
-        ANSWERS = 3
+# these are defined globally        
+#        COLUMNS = 9
+#        ROWS = 20
+#        ANSWERS = 3
 
         epsilon = 10  # image error sensitivity
 
@@ -71,10 +132,10 @@ if __name__ == '__main__':
                 cv2.imread("./markers/bottom_right.png", cv2.IMREAD_GRAYSCALE)]
 
         scaling = [869.0, 840.0]  # scaling factor for 8.5in. x 11in. paper
-        columns = [[52.8 / scaling[0], 63.2 / scaling[1]]]  # dimensions of the columns of bubbles
-        colspace = 77.5 / scaling[0]
-        radius = 6.0 / scaling[0]  # radius of the bubbles
-        spacing = [25.02 / scaling[0], 20.20 / scaling[1]]  # spacing of the rows and columns
+        columns = [[49.4 / scaling[0], 62.0 / scaling[1]]]  # dimensions of the columns of bubbles
+        colspace = 78.5 / scaling[0]
+        radius = 7.0 / scaling[0]  # radius of the bubbles
+        spacing = [25.50 / scaling[0], 20.15 / scaling[1]]  # spacing of the rows and columns
 
         # Load the image from file
         img = cv2.imread(filename)
@@ -96,6 +157,21 @@ if __name__ == '__main__':
             detector = cv.aruco.ArucoDetector(dictionary, parameters)
 
             markerCorners, markerIds, rejectedCandidates = detector.detectMarkers(gray_paper)
+            if DEBUG == 1:
+                print ("corners")
+                print (markerCorners)
+                print ("Ids")
+                print (markerIds)
+                print ("rejected")
+                print (rejectedCandidates)
+                cv2.namedWindow("debug_window", cv.WINDOW_GUI_NORMAL)
+                cv2.resizeWindow("debug_window", 300, 700)
+                aruco.drawDetectedMarkers(paper, rejectedCandidates)
+                aruco.drawDetectedMarkers(paper, markerCorners)
+                cv2.imshow('debug_window', paper)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
+
             for corner, id in zip(markerCorners, markerIds):
                 # print(corner[:,0][0])
                 if id == 3:
@@ -107,36 +183,60 @@ if __name__ == '__main__':
                 elif id == 4:
                     corners[0] = [int(corner[0, :, 0].mean()), int(corner[0, :, 1].mean())]
 
+            print ("Corners:")
+            print(corners)
+            if len(corners[0]) == 0:
+                corners[0] = [corners[2][0],corners[1][1]]
+            elif len(corners[1]) == 0:
+                corners[1] = [corners[3][0],corners[0][1]]
+            elif len(corners[2]) == 0:
+                corners[2] = [corners[0][0],corners[3][1]]
+            elif len(corners[3]) == 0:
+                corners[3] = [corners[1][0],corners[2][1]]
+
             # draw the rectangle around the detected markers
             if drawRect:
                 for corner in corners:
-                    cv2.circle(paper, (corner[0], corner[1]), 20, (0, 255, 0), -1)
+                    cv2.circle(paper, (corner[0], corner[1]), 10, (0, 0, 255), -1)
 
             return corners
 
         corners = FindCorners(img, False)
         print(corners)
 
-        desired_points = np.float32([[68, 424], [1489, 424], [68, 1797], [1489, 1797]])
+        desired_points = np.float32([[68, 200], [1489, 200], [68, 1800], [1489, 1800]])
         points = np.float32(corners)
 
-        M = cv2.getPerspectiveTransform(points, desired_points)
-        sheet = cv2.warpPerspective(img, M, (1589, 1997))
+        M = cv2.getPerspectiveTransform(desired_points, desired_points)
+        sheet = cv2.warpPerspective(img, M, (1589, 1900))
 
-        img = sheet
+        #img = sheet
         height, width, channels = img.shape
         corners = FindCorners(img, True)
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
         # Threshold the image to binarize it
-        treshImg, thresh = cv2.threshold(gray, 230, 255, cv2.THRESH_BINARY_INV)
+        treshImg, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
 
-        xdis, ydis = corners[3][0] - corners[0][0], corners[3][1] - corners[0][1]
+        xdis, ydis = corners[3][0] - corners[1][0], corners[3][1] - corners[1][1]
         answersBoundingbox = [(int(corners[0][0] + 0.035 * xdis), corners[0][1] + int(0.055 * ydis)),
                               (corners[3][0] - int(0.15 * xdis), corners[3][1] - int(0.21 * ydis))]
-        cv2.rectangle(img, answersBoundingbox[0],
-                      answersBoundingbox[1], (0, 255, 0), thickness=2, lineType=8, shift=0)
+        # cv2.rectangle(img, answersBoundingbox[0],
+        #               answersBoundingbox[1], (0, 255, 0), thickness=2, lineType=8, shift=0)
+
+        cv2.rectangle(img, (150,40), (850, 130), (0,255,0), thickness=2, lineType=8)
+        if TESSERACT == 1:
+            print(imageToText(img[60:130, 910:1030]))
+            participant_number = imageToText(img[60:130, 910:1030]).strip().strip("\n")
+            participant_name = imageToText(img[40:130, 150:850]).strip().strip("\n")
+            participant_birthyear = imageToText(img[40:130, 150:850]).strip().strip("\n")
+            participant_gender = imageToText(img[40:130, 150:850]).strip().strip("\n")
+        else:
+            participant_number = "42"
+            participant_name = "James"
+            participant_birthyear = "1970"
+            participant_gender = "M"
 
         # calculate dimensions for scaling
         dimensions = [corners[1][0] - corners[0][0], corners[2][1] - corners[0][1]]
@@ -162,7 +262,7 @@ if __name__ == '__main__':
 
                     percentile = (np.sum(roi == 255) / ((y2 - y1) * (x2 - x1))) * 100
 
-                    if percentile > 42.0:
+                    if percentile > PERC:
                         if j == 0:
                             boulders[i][j] = k + 1
                         if j == 1 and boulders[i][1] == 0:
@@ -175,14 +275,15 @@ if __name__ == '__main__':
                                 boulders[i][1] = k + 1
 
         for i in range(0, ROWS):
-            x1 = int((columns[0][0] + colspace * 9.7) * dimensions[0] + corners[0][0])
+            x1 = int((columns[0][0] + colspace * PRINTZ) * dimensions[0] + corners[0][0])
             y1 = int((columns[0][1] + 0.005 + i * spacing[1]) * dimensions[1] + corners[0][1])
             cv2.putText(img, str(boulders[i][1]), (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 190, 0), 2)
 
-            x2 = int((columns[0][0] + colspace * 10.5) * dimensions[0] + corners[0][0])
-            cv2.putText(img, str(boulders[i][2]), (x2, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 190, 0), 2)
+            x2 = int((columns[0][0] + colspace * PRINTT) * dimensions[0] + corners[0][0])
+            cv2.putText(img, str(boulders[i][2]), (x2, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 0), 2)
 
-        return img, boulders
+        #return img, boulders
+        return img, boulders, participant_name, participant_number, participant_birthyear, participant_gender
 
 
     def getAmountAndTries(boulders):
@@ -199,9 +300,12 @@ if __name__ == '__main__':
 
 
     def export_to_csv(sender, callback):
-        global boulders, amountZT, triesZT, filename
-        name = dpg.get_value("user_name")
-        exportString = f"{name},"
+        global boulders, amountZT, triesZT, filename, participant_name, participant_number, participant_birthyear, participant_gender
+        p_name = dpg.get_value("user_name")
+        p_number = dpg.get_value("user_number")
+        p_birthyear = dpg.get_value("birthyear")
+        p_gender = dpg.get_value("gender")
+        exportString = f"{p_name},{p_number},{p_birthyear},{p_gender},"
         exportString += filename[9:]
         amountZT = [0, 0]
         triesZT = [0, 0]
@@ -219,6 +323,14 @@ if __name__ == '__main__':
         csvFile.flush()
         get_next_file(False)
 
+    if TESSERACT:
+        def imageToText(img):
+            pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+            gry = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            thr = cv2.threshold(gry, 100, 255,
+                                cv2.THRESH_BINARY_INV)[1]
+            txt = image_to_string(thr, lang='eng', config='--psm 6')
+            return txt
 
     def update_amount_and_tries():
         global amountZT, triesZT
@@ -253,7 +365,13 @@ if __name__ == '__main__':
                     dpg.add_image("texture_tag")
                 with dpg.table_cell():
                     dpg.add_text(f"Naam kandidaat:")
-                    dpg.add_input_text(tag=f"user_name")
+                    dpg.add_input_text(tag=f"user_name", default_value=participant_name)
+                    dpg.add_text(f"Nummer kandidaat:")
+                    dpg.add_input_text(tag=f"user_number", default_value=participant_number)
+                    dpg.add_text(f"Geboortejaar kandidaat:")
+                    dpg.add_input_text(tag=f"birthyear", default_value=participant_birthyear)
+                    dpg.add_text(f"Geslacht kandidaat:")
+                    dpg.add_input_text(tag=f"gender", default_value=participant_gender)
                     with dpg.table(header_row=False):
                         dpg.add_table_column(width_fixed=True)
                         dpg.add_table_column(width_fixed=True)
