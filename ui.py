@@ -10,10 +10,14 @@ import cv2.aruco as aruco
 import numpy as np
 import argparse
 
+# Switches
 DEBUG = 0
 TESSERACT = 0
 DB9 = 0
 DBIYO = 0
+
+# Sensitivity. Higher means more grey is needed to get noted.
+PERC = 30.0
 
 # Add some argument parsing
 parser = argparse.ArgumentParser()
@@ -23,8 +27,8 @@ parser.add_argument("-d", "--debug", help="show debugging output",
                     action="store_true")
 parser.add_argument("-o", "--ocr", help="enable tesseract",
                     action="store_true")
-parser.add_argument("-p", "--profile", type=str, choices=['db9','dbiyo'],
-                    help="profile to use for reading scores")
+parser.add_argument("-p", "--profile", type=str, choices=['db9','dbiyo'], 
+            default='db9',         help="profile to use for reading scores")
 args = parser.parse_args()
 if args.verbose:
     print("verbosity turned on")
@@ -50,14 +54,33 @@ if TESSERACT == 1:
     import pytesseract
     from pytesseract import image_to_string
 
-COLUMNS = 9
-ROWS = 20
-ANSWERS = 3
-#PRINTZ = 9.7
-#PRINTT = 10.5
-PRINTZ = 10.8
-PRINTT = 11.0
-PERC = 30.0
+if DB9 == 1:
+    COLUMNS = 9
+    ROWS = 20
+    ANSWERS = 3
+    # Where to print the results we read
+    PRINTZ = 10.8
+    PRINTT = 11.0
+    # Row and column spacing to find the bubbles
+    COLDIM_X = 49.4
+    COLDIM_Y = 62.0
+    COLSPACE = 78.5
+    SPACING_X = 25.50
+    SPACING_Y = 20.15
+
+if DBIYO == 1:
+    COLUMNS = 9
+    ROWS = 20
+    ANSWERS = 3
+    # Where to print the results we read
+    PRINTZ = 9.7
+    PRINTT = 10.5
+    # Row and column spacing to find the bubbles
+    COLDIM_X = 68.4
+    COLDIM_Y = 34.5
+    COLSPACE = 140.2
+    SPACING_X = 38.39
+    SPACING_Y = 22.72
 
 if __name__ == '__main__':
     paths = ["processed", "toscan", "errored"]
@@ -79,7 +102,7 @@ if __name__ == '__main__':
 
 
     def get_next_file(isInitialization):
-        global filename, img, boulders, amountZT, triesZT, frame, data, texture_data, participant_name ,participant_number, participant_birthyear, participant_gender
+        global filename, fn_nopath, number, img, boulders, amountZT, triesZT, frame, data, texture_data, participant_name ,participant_number, participant_birthyear, participant_gender
         if not isInitialization:
             shutil.move(filename, "./processed", copy_function=shutil.copy2)
 
@@ -87,12 +110,15 @@ if __name__ == '__main__':
         fileList = [join(path, f) for f in os.listdir(path) if isfile(join(path, f))]
         if len(fileList) == 0:
             exit(0)
-        filename = fileList.pop(0)
-        fn = filename.split('.')[0]
-        fnumber = fn.split('_')[-1]
+
+        sorted_fileList = sorted(fileList)
+        filename = sorted_fileList.pop(0)
+        fn_nopath = filename.split('/')[-1]
+        fn_noext = fn_nopath.split('.')[0] 
+        number = fn_noext.split('_')[-1]
         print(filename)
-        print(fn)
-        print(fnumber)
+        print(fn_nopath)
+        print(number)
         img, boulders, participant_name, participant_number, participant_birthyear, participant_gender = read_file(filename)
         amountZT, triesZT = getAmountAndTries(boulders)
 
@@ -111,8 +137,8 @@ if __name__ == '__main__':
                 update_amount_and_tries()
             dpg.set_value("user_name", f"{participant_name}")
             dpg.set_value("user_number", f"{participant_number}")
-            dpg.set_value("birthyear", f"{participant_birthyear}")
-            dpg.set_value("gender", f"{participant_gender}")
+            dpg.set_value("user_birthyear", f"{participant_birthyear}")
+            dpg.set_value("user_gender", f"{participant_gender}")
         except:
             print("Booting up")
 
@@ -132,10 +158,10 @@ if __name__ == '__main__':
                 cv2.imread("./markers/bottom_right.png", cv2.IMREAD_GRAYSCALE)]
 
         scaling = [869.0, 840.0]  # scaling factor for 8.5in. x 11in. paper
-        columns = [[49.4 / scaling[0], 62.0 / scaling[1]]]  # dimensions of the columns of bubbles
-        colspace = 78.5 / scaling[0]
+        columns = [[COLDIM_X / scaling[0], COLDIM_Y / scaling[1]]]  # dimensions of the columns of bubbles
+        colspace = COLSPACE / scaling[0]
         radius = 7.0 / scaling[0]  # radius of the bubbles
-        spacing = [25.50 / scaling[0], 20.15 / scaling[1]]  # spacing of the rows and columns
+        spacing = [SPACING_X / scaling[0], SPACING_Y / scaling[1]]  # spacing of the rows and columns
 
         # Load the image from file
         img = cv2.imread(filename)
@@ -230,10 +256,9 @@ if __name__ == '__main__':
             print(imageToText(img[60:130, 910:1030]))
             participant_number = imageToText(img[60:130, 910:1030]).strip().strip("\n")
             participant_name = imageToText(img[40:130, 150:850]).strip().strip("\n")
-            participant_birthyear = imageToText(img[40:130, 150:850]).strip().strip("\n")
             participant_gender = imageToText(img[40:130, 150:850]).strip().strip("\n")
         else:
-            participant_number = "42"
+            participant_number = number
             participant_name = "James"
             participant_birthyear = "1970"
             participant_gender = "M"
@@ -280,7 +305,7 @@ if __name__ == '__main__':
             cv2.putText(img, str(boulders[i][1]), (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 190, 0), 2)
 
             x2 = int((columns[0][0] + colspace * PRINTT) * dimensions[0] + corners[0][0])
-            cv2.putText(img, str(boulders[i][2]), (x2, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 0), 2)
+            cv2.putText(img, str(boulders[i][2]), (x2, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 190, 0), 2)
 
         #return img, boulders
         return img, boulders, participant_name, participant_number, participant_birthyear, participant_gender
@@ -300,13 +325,13 @@ if __name__ == '__main__':
 
 
     def export_to_csv(sender, callback):
-        global boulders, amountZT, triesZT, filename, participant_name, participant_number, participant_birthyear, participant_gender
+        global boulders, amountZT, triesZT, filename, fn_nopath, participant_name, participant_number, participant_birthyear, participant_gender
         p_name = dpg.get_value("user_name")
         p_number = dpg.get_value("user_number")
-        p_birthyear = dpg.get_value("birthyear")
-        p_gender = dpg.get_value("gender")
-        exportString = f"{p_name},{p_number},{p_birthyear},{p_gender},"
-        exportString += filename[9:]
+        p_gender = dpg.get_value("user_gender")
+        p_birthyear = dpg.get_value("user_birthyear")
+        exportString = f"{p_name},{p_number},{p_gender},{p_birthyear},"
+#        exportString += filename[9:]
         amountZT = [0, 0]
         triesZT = [0, 0]
         for i in range(0, len(boulders)):
@@ -369,9 +394,9 @@ if __name__ == '__main__':
                     dpg.add_text(f"Nummer kandidaat:")
                     dpg.add_input_text(tag=f"user_number", default_value=participant_number)
                     dpg.add_text(f"Geboortejaar kandidaat:")
-                    dpg.add_input_text(tag=f"birthyear", default_value=participant_birthyear)
+                    dpg.add_input_text(tag=f"user_birthyear", default_value=participant_birthyear)
                     dpg.add_text(f"Geslacht kandidaat:")
-                    dpg.add_input_text(tag=f"gender", default_value=participant_gender)
+                    dpg.add_input_text(tag=f"user_gender", default_value=participant_gender)
                     with dpg.table(header_row=False):
                         dpg.add_table_column(width_fixed=True)
                         dpg.add_table_column(width_fixed=True)
