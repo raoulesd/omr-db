@@ -9,15 +9,36 @@ import cv2 as cv2
 import cv2.aruco as aruco
 import numpy as np
 import argparse
+from configparser import ConfigParser
 
 # Switches
 DEBUG = 0
+VERBOSE = 0
 TESSERACT = 0
 DB9 = 0
 DBIYO = 0
 
 # Sensitivity. Higher means more grey is needed to get noted.
-PERC = 30.0
+PERC = 45.0
+
+# Read some configs
+# Create ConfigParser object
+config_object = ConfigParser()
+
+# Read config from config.ini
+config_object.read("config.ini")
+
+# Get general params
+general_conf = config_object["GENERAL"]
+BASEDIR = format(general_conf["basedir"])
+IMAGEDIR = format(general_conf["imagedir"])
+print (BASEDIR)
+print (IMAGEDIR)
+
+# Get the TESSERACT stuff, like cmd
+tesseract_conf = config_object["TESSERACT"]
+TESSERACTCMD = format(tesseract_conf["cmd"])
+print (TESSERACTCMD)
 
 # Add some argument parsing
 parser = argparse.ArgumentParser()
@@ -29,12 +50,16 @@ parser.add_argument("-o", "--ocr", help="enable tesseract",
                     action="store_true")
 parser.add_argument("-p", "--profile", type=str, choices=['db9','dbiyo'], 
             default='db9',         help="profile to use for reading scores")
+
 args = parser.parse_args()
+
 if args.verbose:
     print("verbosity turned on")
+    VERBOSE = 1
 
 if args.debug:
     print("debug turned on")
+    VERBOSE = 1
     DEBUG = 1
 
 if args.ocr:
@@ -49,7 +74,6 @@ if args.profile:
     else:
         DB9 = 1
 
-
 if TESSERACT == 1:
     import pytesseract
     from pytesseract import image_to_string
@@ -62,19 +86,19 @@ if DB9 == 1:
     PRINTZ = 10.8
     PRINTT = 11.0
     # Row and column spacing to find the bubbles
-    COLDIM_X = 49.4
-    COLDIM_Y = 62.0
-    COLSPACE = 78.5
-    SPACING_X = 25.50
-    SPACING_Y = 20.15
+    COLDIM_X = 44.0
+    COLDIM_Y = 178.0
+    COLSPACE = 76.0
+    SPACING_X = 24.70
+    SPACING_Y = 17.20
 
 if DBIYO == 1:
-    COLUMNS = 9
-    ROWS = 20
+    COLUMNS = 5
+    ROWS = 30
     ANSWERS = 3
     # Where to print the results we read
-    PRINTZ = 9.7
-    PRINTT = 10.5
+    PRINTZ = 5.9
+    PRINTT = 6.1
     # Row and column spacing to find the bubbles
     COLDIM_X = 68.4
     COLDIM_Y = 34.5
@@ -85,53 +109,78 @@ if DBIYO == 1:
 if __name__ == '__main__':
     paths = ["processed", "toscan", "errored"]
     for p in paths:
-        isExist = os.path.exists(p)
+        isExist = os.path.exists(os.path.join(IMAGEDIR,p))
         if not isExist:
-            os.makedirs(p)
-            print(f"Made dir: {p}")
+            os.makedirs(os.path.join(IMAGEDIR,p))
+            print(f"Made dir: {p} in {IMAGEDIR}")
 
-    path = "./toscan"
+    path = os.path.join(IMAGEDIR, "toscan")
     fileList = [join(path, f) for f in os.listdir(path) if isfile(join(path, f))]
     print(fileList)
 
-    csvFile = open("results.csv", "a")
+    resultFile = os.path.join(BASEDIR, "results.csv")
+    print(resultFile)
+    resultExist = os.path.exists(resultFile)
+    if resultExist:
+        answer = input("results.csv already exists, continue (y/n)? ").lower()
+        if answer.startswith('n'):
+            print ("stopping")
+            exit(1)
+
+    csvFile = open(resultFile, "a")
 
     dpg.create_context()
-    dpg.create_viewport(title='Review scores', width=1800, height=1400)
+    dpg.create_viewport(title='Review scores', width=1800, height=1000)
     dpg.setup_dearpygui()
 
 
     def get_next_file(isInitialization):
-        global filename, fn_nopath, number, img, boulders, amountZT, triesZT, frame, data, texture_data, participant_name ,participant_number, participant_birthyear, participant_gender
+        global wfilename, fn_nopath, number, img, boulders, amountZT, triesZT, frame, data, texture_data, participant_name ,participant_number, participant_birthyear, participant_gender
         if not isInitialization:
-            shutil.move(filename, "./processed", copy_function=shutil.copy2)
+            shutil.move(wfilename, os.path.join(IMAGEDIR, "processed"), copy_function=shutil.copy2)
 
-        path = "./toscan"
+        path = os.path.join(IMAGEDIR, "toscan")
         fileList = [join(path, f) for f in os.listdir(path) if isfile(join(path, f))]
         if len(fileList) == 0:
             exit(0)
 
+        pid = os.getpid()
+        wdir = os.path.join(IMAGEDIR, "work." + str(pid))
+        print(wdir)
+
+        isExist = os.path.exists(wdir)
+        if not isExist:
+            os.makedirs(wdir)
+
         sorted_fileList = sorted(fileList)
         filename = sorted_fileList.pop(0)
-        fn_nopath = filename.split('/')[-1]
+        #fn_nopath = filename.split('/')[-1]
+        fn_nopath = filename.split(os.sep)[-1]
         fn_noext = fn_nopath.split('.')[0] 
         number = fn_noext.split('_')[-1]
-        print(filename)
-        print(fn_nopath)
-        print(number)
-        img, boulders, participant_name, participant_number, participant_birthyear, participant_gender = read_file(filename)
+        if VERBOSE == 1:
+            print(filename)
+            print(fn_nopath)
+            print(number)
+
+        wfilename = os.path.join(wdir, fn_nopath)
+        print("Working File:" + wfilename)
+        shutil.move(filename, wfilename, copy_function=shutil.copy2)
+        #shutil.copy2(filename, wfilename)
+
+        img, boulders, participant_name, participant_number, participant_birthyear, participant_gender = read_file(wfilename)
         amountZT, triesZT = getAmountAndTries(boulders)
 
         scale_down = 0.6
         frame = cv.resize(img, None, fx=scale_down, fy=scale_down, interpolation=cv.INTER_LINEAR)
-
         data = np.flip(frame, 2)  # because the camera data comes in as BGR and we need RGB
         data = data.ravel()  # flatten camera data to a 1 d stricture
-        data = np.asfarray(data, dtype='f')  # change data type to 32bit floats
+        data = np.asarray(data, dtype='f')  # change data type to 32bit floats
         texture_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
         try:
             dpg.set_value("texture_tag", texture_data)
             for i in range(1, ROWS + 1):
+                
                 dpg.set_value(f"zone_{i}", str(boulders[i - 1][1]))
                 dpg.set_value(f"tops_{i}", str(boulders[i - 1][2]))
                 update_amount_and_tries()
@@ -251,11 +300,13 @@ if __name__ == '__main__':
         # cv2.rectangle(img, answersBoundingbox[0],
         #               answersBoundingbox[1], (0, 255, 0), thickness=2, lineType=8, shift=0)
 
-        cv2.rectangle(img, (150,40), (850, 130), (0,255,0), thickness=2, lineType=8)
+        cv2.rectangle(img, (300,140), (1380, 230), (0,255,0), thickness=2, lineType=8)
+        cv2.rectangle(img, (1400,140), (1580, 230), (255,0,255), thickness=2, lineType=8)
         if TESSERACT == 1:
-            print(imageToText(img[60:130, 910:1030]))
-            participant_number = imageToText(img[60:130, 910:1030]).strip().strip("\n")
-            participant_name = imageToText(img[40:130, 150:850]).strip().strip("\n")
+            print(imageToText(img[140:230, 1400:1580]))
+            participant_number = imageToText(img[140:230, 1400:1580]).strip().strip("\n")
+            participant_name = imageToText(img[140:230, 300:1380]).strip().strip("\n")
+            participant_birthyear = "1970"
             participant_gender = imageToText(img[40:130, 150:850]).strip().strip("\n")
         else:
             participant_number = number
@@ -331,7 +382,7 @@ if __name__ == '__main__':
         p_gender = dpg.get_value("user_gender")
         p_birthyear = dpg.get_value("user_birthyear")
         exportString = f"{p_name},{p_number},{p_gender},{p_birthyear},"
-#        exportString += filename[9:]
+        exportString += fn_nopath
         amountZT = [0, 0]
         triesZT = [0, 0]
         for i in range(0, len(boulders)):
@@ -350,7 +401,7 @@ if __name__ == '__main__':
 
     if TESSERACT:
         def imageToText(img):
-            pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+            pytesseract.pytesseract.tesseract_cmd = TESSERACTCMD
             gry = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             thr = cv2.threshold(gry, 100, 255,
                                 cv2.THRESH_BINARY_INV)[1]
