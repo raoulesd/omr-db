@@ -6,19 +6,29 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from imutils.perspective import four_point_transform
-from imutils import contours
-import imutils
 
+
+# -------------------- ARGUMENT PARSING --------------------
 
 ap = argparse.ArgumentParser()
-ap.add_argument("-i", "--image", required=True, help="path to the input image")
+ap.add_argument(
+    "-i", "--image",
+    required=True,
+    help="path to the input image"
+)
 args = vars(ap.parse_args())
+
+
+# -------------------- IMAGE LOADING --------------------
 
 image = cv2.imread(args["image"])
 if image is None:
     raise FileNotFoundError(f"Could not read image: {args['image']}")
 
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+
+# -------------------- ARUCO SETUP --------------------
 
 if not hasattr(cv2, "aruco"):
     raise ImportError("cv2.aruco not found. Install opencv-contrib-python.")
@@ -58,6 +68,9 @@ def marker_outer_corner(marker_corners_4x2: np.ndarray, which: str) -> np.ndarra
 
     raise ValueError("which must be one of: 'tl', 'tr', 'br', 'bl'")
 
+
+# -------------------- ARUCO DETECTION --------------------
+
 try:
     # Newer OpenCV API
     params = cv2.aruco.DetectorParameters()
@@ -93,6 +106,9 @@ if missing:
         f"Detected IDs: {sorted(ids)}"
     )
 
+
+# -------------------- SHEET CORNER EXTRACTION --------------------
+
 pt_tl = marker_outer_corner(id_to_corners[ID_TL], "tl")
 pt_tr = marker_outer_corner(id_to_corners[ID_TR], "tr")
 pt_br = marker_outer_corner(id_to_corners[ID_BR], "br")
@@ -103,8 +119,14 @@ docCnt = np.array(
     dtype=np.float32
 )
 
+
+# -------------------- PERSPECTIVE TRANSFORM --------------------
+
 paper = four_point_transform(image, docCnt)
 warped = four_point_transform(gray, docCnt)
+
+
+# -------------------- VISUAL DEBUG PREVIEW --------------------
 
 preview = image.copy()
 cv2.aruco.drawDetectedMarkers(
@@ -123,28 +145,33 @@ for (x, y), label in zip(docCnt, ["TL", "TR", "BR", "BL"]):
         2
     )
 
-# fig, axs = plt.subplots(1, 3, figsize=(22, 7))
+fig, axs = plt.subplots(1, 3, figsize=(22, 7))
 
-# axs[0].imshow(cv2.cvtColor(preview, cv2.COLOR_BGR2RGB))
-# axs[0].set_title("AruCo + Sheet Corners")
-# axs[0].axis("off")
+axs[0].imshow(cv2.cvtColor(preview, cv2.COLOR_BGR2RGB))
+axs[0].set_title("AruCo + Sheet Corners")
+axs[0].axis("off")
 
-# axs[1].imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
-# axs[1].set_title("Warped Color")
-# axs[1].axis("off")
+axs[1].imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
+axs[1].set_title("Warped Color")
+axs[1].axis("off")
 
-# axs[2].imshow(warped, cmap="gray")
-# axs[2].set_title("Warped Gray")
-# axs[2].axis("off")
+axs[2].imshow(warped, cmap="gray")
+axs[2].set_title("Warped Gray")
+axs[2].axis("off")
 
-# plt.show()
+plt.show()
 
 
-image = warped
-gray = image
 
-blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-edged = cv2.Canny(blurred, 75, 200)
+
+
+
+
+#----------THIS PART IS USED FOR PERSPECTIVE TRANSFORM USING PAPER EDGE DETECTION----------
+
+
+# blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+# edged = cv2.Canny(blurred, 75, 200)
 
 
 
@@ -168,8 +195,8 @@ edged = cv2.Canny(blurred, 75, 200)
 # plt.show()
 
 
-# find contours in the edge map, then initialize
-# the contour that corresponds to the document
+# # find contours in the edge map, then initialize
+# # the contour that corresponds to the document
 # cnts = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL,
 # 	cv2.CHAIN_APPROX_SIMPLE)
 # cnts = imutils.grab_contours(cnts)
@@ -183,20 +210,20 @@ edged = cv2.Canny(blurred, 75, 200)
 # 	for c in cnts:
 # 		# approximate the contour
 # 		peri = cv2.arcLength(c, True)
-# 		approx = cv2.approxPolyDP(c, 0.1 * peri, True)
+# 		approx = cv2.approxPolyDP(c, 0.02 * peri, True)
 # 		# if our approximated contour has four points,
 # 		# then we can assume we have found the paper
 # 		if len(approx) == 4:
 # 			docCnt = approx
 # 			break
 
-# apply a four point perspective transform to both the
-# original image and grayscale image to obtain a top-down
-# birds eye view of the paper
+# # apply a four point perspective transform to both the
+# # original image and grayscale image to obtain a top-down
+# # birds eye view of the paper
 # paper = four_point_transform(image, docCnt.reshape(4, 2))
 # warped = four_point_transform(gray, docCnt.reshape(4, 2))
 
-# # draw the detected document contour on a copy of the image
+# draw the detected document contour on a copy of the image
 # image_contour = image.copy()
 # cv2.drawContours(image_contour, [docCnt], -1, (0, 255, 0), 3)
 
@@ -206,105 +233,4 @@ edged = cv2.Canny(blurred, 75, 200)
 # plt.axis("off")
 # plt.show()
 
-
-
-
-thresh = cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-
-# fig, axs = plt.subplots(1, 2, figsize=(14, 6))
-
-# axs[0].imshow(warped, cmap="gray")
-# axs[0].set_title("Warped Grayscale")
-# axs[0].axis("off")
-
-# axs[1].imshow(thresh, cmap="gray")
-# axs[1].set_title("Otsu Thresholded")
-# axs[1].axis("off")
-
-# plt.show()
-
-# find contours in the thresholded image, then initialize
-# the list of contours that correspond to questions
-cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
-	cv2.CHAIN_APPROX_SIMPLE)
-cnts = imutils.grab_contours(cnts)
-questionCnts = []
-# loop over the contours
-for c in cnts:
-	# compute the bounding box of the contour, then use the
-	# bounding box to derive the aspect ratio
-	(x, y, w, h) = cv2.boundingRect(c)
-	ar = w / float(h)
-	# in order to label the contour as a question, region
-	# should be sufficiently wide, sufficiently tall, and
-	# have an aspect ratio approximately equal to 1
-	if w >= 180 and h >= 120 and ar >= 0.6:
-	# if w >= 6 and h >= 9 and ar >= 0.6 and ar <= 1.1:
-	    questionCnts.append(c)
-
-    
-
-
-docCnt = None
-
-if len(cnts) > 0:
-    cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
-
-    for c in cnts:
-        # optional: reject tiny contours early
-        if cv2.contourArea(c) < 1000:
-            continue
-
-        pts = c.reshape(-1, 2)
-
-        # Tune these bands (pixels). Increase if edges are noisy.
-        tol_y = 10
-
-        minY = pts[:, 1].min()
-        maxY = pts[:, 1].max()
-
-        top_band = pts[pts[:, 1] <= (minY + tol_y)]
-        bot_band = pts[pts[:, 1] >= (maxY - tol_y)]
-
-        # Need enough points to be meaningful
-        if len(top_band) < 2 or len(bot_band) < 2:
-            continue
-
-        # Top corners: safe from the bottom tail
-        TL = top_band[np.argmin(top_band[:, 0])]
-        TR = top_band[np.argmax(top_band[:, 0])]
-
-        # Bottom y: robust statistic from bottom band
-        y_bottom = int(np.median(bot_band[:, 1]))
-
-        # Bottom corners: DO NOT use bottom_band minX (tail poison)
-        BL = np.array([int(TL[0]), y_bottom], dtype=np.int32)
-        BR = np.array([int(TR[0]), y_bottom], dtype=np.int32)
-
-        # Build docCnt in the shape OpenCV/imutils code expects: (4,1,2)
-        docCnt = np.array([TL, TR, BR, BL], dtype=np.float32).reshape(4, 1, 2)
-        break
-
-
-# Apply a four point perspective transform to both the
-# original image and grayscale image to obtain a top-down view
-paper = four_point_transform(image, docCnt.reshape(4, 2))
-warped = four_point_transform(gray,  docCnt.reshape(4, 2))
-
-# -------------------- DRAW QUESTION CONTOURS --------------------
-
-contour_preview = paper.copy()  # use the warped COLOR image
-
-# cv2.drawContours(
-#     contour_preview,
-#     questionCnts,
-#     -1,            # draw all contours
-#     (0, 255, 0),   # green
-#     2
-# )
-
-plt.figure(figsize=(8, 10))
-plt.imshow(cv2.cvtColor(contour_preview, cv2.COLOR_BGR2RGB))
-plt.title(f"Detected Question Contours ({len(questionCnts)})")
-plt.axis("off")
-plt.show()
+# --------------------------------------------------------- #
