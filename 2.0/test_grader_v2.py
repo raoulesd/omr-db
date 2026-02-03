@@ -58,150 +58,163 @@ def marker_outer_corner(marker_corners_4x2: np.ndarray, which: str) -> np.ndarra
 
     raise ValueError("which must be one of: 'tl', 'tr', 'br', 'bl'")
 
-try:
-    # Newer OpenCV API
-    params = cv2.aruco.DetectorParameters()
-    detector = cv2.aruco.ArucoDetector(ARUCO_DICT, params)
-    corners_list, ids, _ = detector.detectMarkers(gray)
-except AttributeError:
-    # Older OpenCV API fallback
-    params = cv2.aruco.DetectorParameters_create()
-    corners_list, ids, _ = cv2.aruco.detectMarkers(
-        gray, ARUCO_DICT, parameters=params
+def aruco_transform(gray):
+    try:
+        # Newer OpenCV API
+        params = cv2.aruco.DetectorParameters()
+        detector = cv2.aruco.ArucoDetector(ARUCO_DICT, params)
+        corners_list, ids, _ = detector.detectMarkers(gray)
+    except AttributeError:
+        # Older OpenCV API fallback
+        params = cv2.aruco.DetectorParameters_create()
+        corners_list, ids, _ = cv2.aruco.detectMarkers(
+            gray, ARUCO_DICT, parameters=params
+        )
+
+    if ids is None:
+        raise RuntimeError(
+            "No ArUco markers detected. "
+            "Check lighting, print quality, and dictionary."
+        )
+
+    ids = ids.flatten().tolist()
+
+    # Map marker ID -> (4, 2) corner array
+    id_to_corners = {
+        marker_id: corners.reshape(4, 2)
+        for corners, marker_id in zip(corners_list, ids)
+    }
+
+    # Ensure all required markers are present
+    required_ids = [ID_TL, ID_TR, ID_BR, ID_BL]
+    missing = [mid for mid in required_ids if mid not in id_to_corners]
+    if missing:
+        raise RuntimeError(
+            f"Missing required ArUco IDs: {missing}. "
+            f"Detected IDs: {sorted(ids)}"
+        )
+
+    pt_tl = marker_outer_corner(id_to_corners[ID_TL], "tl")
+    pt_tr = marker_outer_corner(id_to_corners[ID_TR], "tr")
+    pt_br = marker_outer_corner(id_to_corners[ID_BR], "br")
+    pt_bl = marker_outer_corner(id_to_corners[ID_BL], "bl")
+
+    docCnt = np.array(
+        [pt_tl, pt_tr, pt_br, pt_bl],
+        dtype=np.float32
     )
 
-if ids is None:
-    raise RuntimeError(
-        "No ArUco markers detected. "
-        "Check lighting, print quality, and dictionary."
+    paper = four_point_transform(image, docCnt)
+    warped = four_point_transform(gray, docCnt)
+    return paper, warped, corners_list, ids, docCnt
+
+paper, warped, corners_list, ids, docCnt = aruco_transform(gray)
+
+def ui_draw_aruco_corners(image, corners_list, ids, docCnt):
+
+    preview = image.copy()
+    cv2.aruco.drawDetectedMarkers(
+        preview, corners_list, np.array(ids).reshape(-1, 1)
     )
 
-ids = ids.flatten().tolist()
+    for (x, y), label in zip(docCnt, ["TL", "TR", "BR", "BL"]):
+        cv2.circle(preview, (int(x), int(y)), 10, (0, 0, 255), -1)
+        cv2.putText(
+            preview,
+            label,
+            (int(x) + 10, int(y) - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 0, 255),
+            2
+        )
+    return preview
 
-# Map marker ID -> (4, 2) corner array
-id_to_corners = {
-    marker_id: corners.reshape(4, 2)
-    for corners, marker_id in zip(corners_list, ids)
-}
+def question_area_transform(warped):
+    image = warped
+    gray = image
 
-# Ensure all required markers are present
-required_ids = [ID_TL, ID_TR, ID_BR, ID_BL]
-missing = [mid for mid in required_ids if mid not in id_to_corners]
-if missing:
-    raise RuntimeError(
-        f"Missing required ArUco IDs: {missing}. "
-        f"Detected IDs: {sorted(ids)}"
-    )
-
-pt_tl = marker_outer_corner(id_to_corners[ID_TL], "tl")
-pt_tr = marker_outer_corner(id_to_corners[ID_TR], "tr")
-pt_br = marker_outer_corner(id_to_corners[ID_BR], "br")
-pt_bl = marker_outer_corner(id_to_corners[ID_BL], "bl")
-
-docCnt = np.array(
-    [pt_tl, pt_tr, pt_br, pt_bl],
-    dtype=np.float32
-)
-
-paper = four_point_transform(image, docCnt)
-warped = four_point_transform(gray, docCnt)
-
-preview = image.copy()
-cv2.aruco.drawDetectedMarkers(
-    preview, corners_list, np.array(ids).reshape(-1, 1)
-)
-
-for (x, y), label in zip(docCnt, ["TL", "TR", "BR", "BL"]):
-    cv2.circle(preview, (int(x), int(y)), 10, (0, 0, 255), -1)
-    cv2.putText(
-        preview,
-        label,
-        (int(x) + 10, int(y) - 10),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.8,
-        (0, 0, 255),
-        2
-    )
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edged = cv2.Canny(blurred, 75, 200)
 
 
-image = warped
-gray = image
+    thresh = cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
 
-blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-edged = cv2.Canny(blurred, 75, 200)
-
-
-thresh = cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-
-cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
-	cv2.CHAIN_APPROX_SIMPLE)
-cnts = imutils.grab_contours(cnts)
-questionCnts = []
-# loop over the contours
-for c in cnts:
-	# compute the bounding box of the contour, then use the
-	# bounding box to derive the aspect ratio
-	(x, y, w, h) = cv2.boundingRect(c)
-	ar = w / float(h)
-	# in order to label the contour as a question, region
-	# should be sufficiently wide, sufficiently tall, and
-	# have an aspect ratio approximately equal to 1
-	if w >= 180 and h >= 120 and ar >= 0.6:
-	# if w >= 6 and h >= 9 and ar >= 0.6 and ar <= 1.1:
-	    questionCnts.append(c)
-
-docCnt = None
-
-if len(cnts) > 0:
-    cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
-
+    cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE)
+    cnts = imutils.grab_contours(cnts)
+    questionCnts = []
+    # loop over the contours
     for c in cnts:
-        # optional: reject tiny contours early
-        if cv2.contourArea(c) < 1000:
-            continue
+        # compute the bounding box of the contour, then use the
+        # bounding box to derive the aspect ratio
+        (x, y, w, h) = cv2.boundingRect(c)
+        ar = w / float(h)
+        # in order to find the question area, the region
+        # should be sufficiently wide, sufficiently tall, and
+        # have an aspect ratio approximately equal to 0.6
+        if w >= 180 and h >= 120 and ar >= 0.6:
+            questionCnts.append(c)
 
-        pts = c.reshape(-1, 2)
-
-        # Tune these bands (pixels). Increase if edges are noisy.
-        tol_y = 10
-
-        minY = pts[:, 1].min()
-        maxY = pts[:, 1].max()
-
-        top_band = pts[pts[:, 1] <= (minY + tol_y)]
-        bot_band = pts[pts[:, 1] >= (maxY - tol_y)]
-
-        # Need enough points to be meaningful
-        if len(top_band) < 2 or len(bot_band) < 2:
-            continue
-
-        # Top corners: safe from the bottom tail
-        TL = top_band[np.argmin(top_band[:, 0])]
-        TR = top_band[np.argmax(top_band[:, 0])]
-
-        # Bottom y: robust statistic from bottom band
-        y_bottom = int(np.median(bot_band[:, 1]))
-
-        # Bottom corners: DO NOT use bottom_band minX (tail poison)
-        BL = np.array([int(TL[0]), y_bottom], dtype=np.int32)
-        BR = np.array([int(TR[0]), y_bottom], dtype=np.int32)
-
-        # Build docCnt in the shape OpenCV/imutils code expects: (4,1,2)
-        docCnt = np.array([TL, TR, BR, BL], dtype=np.float32).reshape(4, 1, 2)
-        break
+    docCnt = None
 
 
-# Apply a four point perspective transform to both the
-# original image and grayscale image to obtain a top-down view
-paper = four_point_transform(image, docCnt.reshape(4, 2))
-warped = four_point_transform(gray,  docCnt.reshape(4, 2))
+    # cnts should only have 1 contour, the largest in the image and the area the questions are in
+    # this then allows us to find the four corners of the question area for perspective transform
+    # this might be handy if the question area is misaligned from the aruco markers
+    if len(cnts) > 0:
+        cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
+
+        for c in cnts:
+            # optional: reject tiny contours early
+            if cv2.contourArea(c) < 1000:
+                continue
+
+            pts = c.reshape(-1, 2)
+
+            # Tune these bands (pixels). Increase if edges are noisy.
+            tol_y = 10
+
+            minY = pts[:, 1].min()
+            maxY = pts[:, 1].max()
+
+            top_band = pts[pts[:, 1] <= (minY + tol_y)]
+            bot_band = pts[pts[:, 1] >= (maxY - tol_y)]
+
+            # Need enough points to be meaningful
+            if len(top_band) < 2 or len(bot_band) < 2:
+                continue
+
+            # Top corners: safe from the bottom tail
+            TL = top_band[np.argmin(top_band[:, 0])]
+            TR = top_band[np.argmax(top_band[:, 0])]
+
+            # Bottom y: robust statistic from bottom band
+            y_bottom = int(np.median(bot_band[:, 1]))
+
+            # Bottom corners: DO NOT use bottom_band minX (tail poison)
+            BL = np.array([int(TL[0]), y_bottom], dtype=np.int32)
+            BR = np.array([int(TR[0]), y_bottom], dtype=np.int32)
+
+            # Build docCnt in the shape OpenCV/imutils code expects: (4,1,2)
+            docCnt = np.array([TL, TR, BR, BL], dtype=np.float32).reshape(4, 1, 2)
+            break
+
+
+    # Apply a four point perspective transform to both the
+    # original image and grayscale image to obtain a top-down view
+    paper = four_point_transform(image, docCnt.reshape(4, 2))
+    warped = four_point_transform(gray,  docCnt.reshape(4, 2))
+    return paper, warped, docCnt
+
+paper, warped, question_area_cnt = question_area_transform(warped)
 
 # -------------------- DRAW QUESTION CONTOURS --------------------
 
 
 plt.figure(figsize=(8, 10))
 plt.imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
-plt.title(f"Detected Question Contours ({len(questionCnts)})")
+plt.title(f"Detected Question Contours ({len(question_area_cnt)})")
 plt.axis("off")
 plt.show()
 

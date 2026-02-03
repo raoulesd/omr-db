@@ -1,10 +1,14 @@
 Make sure Python is installed on the system by checking its version. Otherwise, download it [here](https://www.python.org/downloads/).
 
-> python --version
+```
+python --version
+```
 
 Navigate to the root directory of the repository. Then, install the required dependencies using the package installer for Python.
 
-> pip install -r requirements.txt
+```
+pip install -r requirements.txt
+```
 
 Example forms saved in `2.0/test_forms/` are omitted due to privacy reasons and are available upon request from the repository owner.
 
@@ -12,4 +16,6 @@ For 2.0, test_grader.py can be used if the directory `2.0/test_forms/` exists wi
 
 An example command with terminal navigated to the `2.0/` directory:
 
-> python test_grader.py -i test_forms\a.png
+```
+python test_grader.py -i test_forms\a.png
+```
