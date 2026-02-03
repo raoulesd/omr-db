@@ -2,7 +2,7 @@ Make sure Python is installed on the system by checking its version. Otherwise, 
 
 > python --version
 
-Install the required dependencies using the package installer for Python.
+Navigate to the root directory of the repository. Then, install the required dependencies using the package installer for Python.
 
 > pip install -r requirements.txt
 
