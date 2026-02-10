@@ -149,6 +149,16 @@ def ui_draw_aruco_corners(image, corners_list, ids, docCnt):
     return preview
 
 def question_area_transform(warped):
+    """
+    Finds the contour of the question area in the warped grayscale image and applies a perspective transform to isolate it. 
+    This is useful if the question area is misaligned from the ArUco markers.
+    
+    :param warped: Warped grayscale image of the paper
+    :return: Tuple of (paper, warped, docCnt)
+            - paper: Warped color image of the question area
+            - warped: Warped grayscale image of the question area
+            - docCnt: Array of the four corners of the question area in the warped image
+    """
     image = warped
     gray = image
 
@@ -235,14 +245,21 @@ plt.axis("off")
 plt.show()
 
 def detect_bubbles(warped):
+    """
+    Detects bubble contours in the warped grayscale image of the question area.
+    
+    :param warped: Warped grayscale image of the question area
+    :return: Tuple of (questionCnts, thresh2, warped_u8)
+            - questionCnts: List of contours corresponding to detected bubbles
+            - thresh2: Binary image used for contour detection (white=ink/pencil)
+            - warped_u8: Warped grayscale image normalized to uint8 (0..255)
+    """
 
     # 1) Threshold (make sure warped is 8-bit single channel)
     if warped.dtype != np.uint8:
         warped_u8 = cv2.normalize(warped, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     else:
         warped_u8 = warped
-
-    # thresh2 = cv2.threshold(warped_u8, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
 
     # blur helps a lot for pencil texture
     enhanced = cv2.GaussianBlur(warped_u8, (5, 5), 0)
@@ -346,6 +363,14 @@ def detect_bubbles(warped):
 questionCnts, thresh2, warped_u8 = detect_bubbles(warped)
 	
 def compute_bubble_grid(questionCnts, thresh2, warped_u8):
+    """
+    Computes the grid layout of the detected bubble contours by clustering their centroids into ROWS and COLS using K-means.
+    Also estimates the median bubble size for later use in scoring.
+    
+    :param questionCnts: List of contours corresponding to detected bubbles
+    :param thresh2: Binary image used for contour detection (white=ink/pencil)
+    :param warped_u8: Warped grayscale image normalized to uint8 (0..255)
+    """
 
     ROWS = 20
     COLS = 27  # 3 groups * 9 columns
@@ -412,17 +437,32 @@ def compute_bubble_grid(questionCnts, thresh2, warped_u8):
 bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, crit = compute_bubble_grid(questionCnts, thresh2, warped_u8)
 
 def compute_fill_scores(bubbles, thresh2, warped_u8, med_w, med_h, crit):
+    """
+    Computes fill scores for each detected bubble contour to determine how filled each bubble is.
+    
+    :param bubbles: List of bubble contour dictionaries with grid positions
+    :param thresh2: Binary image used for contour detection (white=ink/pencil)
+    :param warped_u8: Warped grayscale image normalized to uint8 (0..255)
+    :param med_w: Median width of detected bubbles
+    :param med_h: Median height of detected bubbles
+    :param crit: Termination criteria for k-means clustering
+    :return: Tuple containing fill scores and a grid mapping of bubbles
+                - fill_scores: 2D array of fill scores for each cell in the grid    
+                - overlay: Image with detected bubbles and their fill status drawn for visualization
+                - row_centers_sorted: Sorted array of row center y-coordinates
+                - col_centers_sorted: Sorted array of column center x-coordinates
+                - rad: Estimated radius of the bubbles for visualization
 
-    # Compute "filled" score per bubble contour
-    # thresh2 is white=ink/pencil. We measure whiteness INSIDE the bubble.
-    # To avoid counting the outline ring, erode the contour mask a bit.
+    """
+
+    # compute "filled" score for each bubble contour
+    # thresh2 is white=ink/pencil, measure whiteness inside the bubble
+    # To avoid counting the outline ring, erode the contour mask a bit
     scores = []
     grid = {}  # (r,c) -> best bubble dict
 
     erode_k = max(1, int(round(min(med_w, med_h) * 0.15)))  # ~15% of bubble size
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*erode_k+1, 2*erode_k+1))
-
-    # warped_u8 is your grayscale warped image (uint8)
 
     # 1) Enhance dark pencil strokes
     bh_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21))  # tune 15..31
@@ -542,6 +582,7 @@ fill_scores, overlay, row_centers_sorted, col_centers_sorted, rad = compute_fill
 
 def choose_fill_threshold(scores_1d: np.ndarray, method: str = "percentile") -> float:
     """
+    Different methods to choose a threshold for classifying filled vs unfilled bubbles based on the computed fill scores.
     scores_1d: array-like of fill scores in [0..1]
     method: 'percentile' | 'kmeans' | 'otsu'
     returns: threshold in [0..1] such that score >= threshold => filled
@@ -619,8 +660,3 @@ plt.imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
 plt.title(f"Filled bubbles (red) | Filled={len(filled_cells)}")
 plt.axis("off")
 plt.show()
-
-# Print filled in 1-based indexing:
-print("Filled (row, col, score) 1-based:")
-for (r, c, s) in filled_cells:
-    print(r+1, c+1, f"{s:.3f}")
