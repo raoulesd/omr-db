@@ -1,5 +1,6 @@
 import cv2
 import matplotlib.pyplot as plt
+import numpy as np
 
 def plot_paper(paper, title):
 	plt.figure(figsize=(8, 10))
@@ -8,12 +9,172 @@ def plot_paper(paper, title):
 	plt.axis("off")
 	plt.show()
 
-def find_filled_bubbles_alt(bubbles, thresh2, warped_u8, med_w, med_h, crit):
+def plot_paper_gray(paper, title):
+	plt.figure(figsize=(8, 10))
+	plt.imshow(paper, cmap='gray', vmin=0, vmax=255)
+	plt.title(title)
+	plt.axis("off")
+	plt.show()
+
+def isodata_threshold(values):
+	epsilon = 0.1
+
+	threshold = np.mean(values)
+
+	while True:
+		mean_left = np.mean(values[values<=threshold])
+		mean_right = np.mean(values[values>threshold])
+
+		new_threshold = (mean_left + mean_right) / 2
+		if np.abs(threshold - new_threshold) < epsilon:
+			break
+		threshold = new_threshold
+
+	return threshold
+
+def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit):
 	ROWS = 20
 	COLS = 27
-	return [], (ROWS, COLS)
 
-def find_filled_bubbles(bubbles, thresh2, warped_u8, med_w, med_h, crit):
+	# experiment
+	full_paper_threshold = isodata_threshold(warped_u8.flatten()) + 10
+	thresholded = cv2.threshold(warped_u8, full_paper_threshold, 255, cv2.THRESH_BINARY)
+	plot_paper_gray(thresholded[1], f"Thresholded with full paper threshold {full_paper_threshold:.2f}")
+
+	# experiment end
+
+	neighbourhood_means = np.zeros(shape=(ROWS, COLS))
+	neighbourhood_diffs = np.zeros(shape=(ROWS, COLS), dtype=np.uint32)
+
+
+	neighbourhood_mean = np.zeros(shape=(med_h+1, med_w+1), dtype=np.uint32)
+	neighbourhood_mean_samples = 0
+
+	neighbourhood_mean_intensity = 0
+
+	for r in range(ROWS):
+		for c in range(COLS):
+			x = int(col_centers_sorted[c])
+			y = int(row_centers_sorted[r])
+
+			neighbourhood = warped_u8[y-med_h//2:y+med_h//2+1, x-med_w//2:x+med_w//2+1]
+
+			neighbourhood_mean_intensity += np.mean(neighbourhood)
+
+	neighbourhood_mean_intensity = neighbourhood_mean_intensity / (ROWS * COLS)
+
+	for r in range(ROWS):
+		for c in range(COLS):
+			x = int(col_centers_sorted[c])
+			y = int(row_centers_sorted[r])
+
+			neighbourhood = warped_u8[y-med_h//2:y+med_h//2+1, x-med_w//2:x+med_w//2+1]
+			neighbourhood_flattened = neighbourhood.flatten()
+			neighbourhood_flattened_sorted = sorted(neighbourhood_flattened)
+			neighbourhood_flattened_sorted = neighbourhood_flattened_sorted[len(neighbourhood_flattened_sorted)//2:]
+			neighbourhood_intensity = np.mean(neighbourhood_flattened_sorted)
+
+			if neighbourhood_intensity > neighbourhood_mean_intensity:
+				neighbourhood_mean += neighbourhood
+				neighbourhood_mean_samples += 1
+				#plot_paper_gray(neighbourhood, f"Neighbourhood at row {r}, col {c}, intensity={neighbourhood_intensity:.2f}")
+
+			#plot_paper(neighbourhood, f"Neighbourhood at row {r}, col {c}")
+
+			neighbourhood_means[r,c] = neighbourhood_intensity
+
+	neighbourhood_mean = neighbourhood_mean / neighbourhood_mean_samples
+	neighbourhood_mean = np.uint8(neighbourhood_mean)
+	#plot_paper(neighbourhood_mean, "Average Neighbourhood")
+
+
+	for r in range(ROWS):
+		for c in range(COLS):
+			x = int(col_centers_sorted[c])
+			y = int(row_centers_sorted[r])
+
+			neighbourhood = warped_u8[y-med_h//2:y+med_h//2+1, x-med_w//2:x+med_w//2+1]
+
+			diff = np.linalg.norm(neighbourhood - neighbourhood_mean)
+
+			neighbourhood_diffs[r, c] = diff
+
+
+	# PLot the differences
+	# neighbourhood_diffs_sorted = sorted(neighbourhood_diffs.flatten())
+	# plt.figure(figsize=(8, 6))
+	# plt.plot(neighbourhood_diffs_sorted)
+	# plt.title("Sorted Neighbourhood Differences")
+	# plt.xlabel("Index")
+	# plt.ylabel("Difference")
+	# plt.show()
+
+	# Plot the sorted neighbourhood means
+	neighbourhood_means_sorted = sorted(neighbourhood_means.flatten())
+
+	histogram = np.histogram(neighbourhood_means_sorted, bins=255, range=(0, 255))
+
+	# plt.figure(figsize=(8, 6))
+	# plt.bar(histogram[1][:-1], histogram[0], width=1)
+	# plt.title("Histogram of Neighbourhood Means")
+	# plt.xlabel("Mean Intensity")
+	# plt.ylabel("Frequency")
+	# plt.show()
+
+	bubbles_status_grid = np.zeros(shape=(ROWS, COLS), dtype=np.uint8)
+
+	threshold = isodata_threshold(neighbourhood_means.flatten()) + 5
+
+	for r in range(ROWS):
+		for c in range(COLS):
+			neighbourhood_mean = neighbourhood_means[r,c]
+
+			if neighbourhood_mean < threshold:
+				bubbles_status_grid[r, c] = 1
+
+	
+	# Rectification pass:
+	
+	for r in range(ROWS):
+		for c in range(0, COLS, 3):
+			neighbourhood_mean = neighbourhood_means[r,c]
+
+			attempt = bubbles_status_grid[r, c] == 1
+			zone = bubbles_status_grid[r, c+1] == 1
+			top = bubbles_status_grid[r, c+2] == 1
+
+			# If the top is filled, all should be filled
+			if top:
+				# Set attempt, zone and top
+				bubbles_status_grid[r, c] = 1
+				bubbles_status_grid[r, c+1] = 1
+				bubbles_status_grid[r, c+2] = 1
+
+			# If the zone is filled, attempt and zone should be filled
+			elif zone:
+				# Set attempt and zone
+				bubbles_status_grid[r, c] = 1
+				bubbles_status_grid[r, c+1] = 1
+			
+			# If any more on this row are filled, this must have been an attempt
+			elif np.sum(bubbles_status_grid[r, c+3:]) > 0:
+				bubbles_status_grid[r, c] = 1
+
+
+
+	# Taking the bubble status grid and turning it into a list of indices
+	filled_bubbles = []
+
+	for r in range(ROWS):
+		for c in range(COLS):
+			if bubbles_status_grid[r, c] == 1:
+				filled_bubbles.append((r, c, 0))
+				
+
+
+	return filled_bubbles, (ROWS, COLS)
+
+def find_filled_bubbles(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit):
 	
 	def compute_fill_scores(bubbles, thresh2, warped_u8, med_w, med_h, crit):
 		"""

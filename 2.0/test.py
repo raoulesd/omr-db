@@ -82,7 +82,7 @@ def run_instance(instance_path):
 
 	return compare_result_with_ground_truth(result, ground_truth, num_rows, num_cols)
 
-def compare_result_with_ground_truth(result, ground_truth, num_rows, num_cols):
+def compare_result_with_ground_truth(result, ground_truth, num_rows, num_cols, print_mistakes=True):
 	# Initialize counters
 	true_positives = 0
 	false_positives = 0
@@ -109,6 +109,14 @@ def compare_result_with_ground_truth(result, ground_truth, num_rows, num_cols):
 	false_negatives = np.count_nonzero(false_negatives_grid)
 
 	true_negatives = np.count_nonzero(np.bitwise_and(np.logical_not(result_grid), np.logical_not(ground_truth_grid)))
+
+	if print_mistakes:
+		for r in range(num_rows):
+			for c in range(num_cols):
+				if false_positives_grid[r,c]:
+					print(f"False positive at ({r}, {c})")
+				if false_negatives_grid[r,c]:
+					print(f"False negative at ({r}, {c})")
 	
 	return (true_positives, false_positives, false_negatives, true_negatives)
 
