@@ -76,7 +76,7 @@ def run_on_single_instance(instance_path):
 def run_instance(instance_path):
 	print(f"Running on instance: {instance_path}")
 
-	(result, (num_rows, num_cols)) = grader.grade_score_form(instance_path)
+	(result, (num_rows, num_cols)) = grader.grade_score_form(instance_path, show_plots=False)
 
 	ground_truth = read_ground_truth(instance_path)
 
