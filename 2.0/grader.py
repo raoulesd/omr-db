@@ -16,6 +16,37 @@ def plot_paper(paper, title):
 	plt.axis("off")
 	plt.show()
 
+def get_amounts_and_tries(filled_cells, num_rows, num_cols):
+	filled_cells_set = set(filled_cells)
+	amountZT = [0, 0]
+	triesZT = [0, 0]
+	for r in range(num_rows):
+		zone_attempts = None
+		top_attempts = None
+		for (attempt_number, c) in enumerate(range(0, num_cols, 3)):
+			is_top = (r, c+2) in filled_cells_set
+			is_zone = (r, c+1) in filled_cells_set
+			is_attempt = (r, c) in filled_cells_set or is_top or is_zone
+
+			if is_attempt:
+				if is_zone and zone_attempts is None:
+					zone_attempts = attempt_number + 1
+				if is_top and top_attempts is None:
+					top_attempts = attempt_number + 1
+
+		amountZT[0] += 1 if zone_attempts is not None else 0
+		amountZT[1] += 1 if top_attempts is not None else 0
+
+		triesZT[0] += zone_attempts if zone_attempts is not None else 0
+		triesZT[1] += top_attempts if top_attempts is not None else 0
+
+	return amountZT, triesZT
+
+
+		
+
+	
+
 def grade_score_form(image_path, show_plots=False):
 	# Load the image and convert it to grayscale
 	image = cv2.imread(image_path)
@@ -45,4 +76,4 @@ def grade_score_form(image_path, show_plots=False):
 
 	filled_cells, (ROWS, COLS) = find_filled_bubbles.find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit)
 
-	return filled_cells, (ROWS, COLS)
+	return filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h)

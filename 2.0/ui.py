@@ -7,20 +7,25 @@ import dearpygui.dearpygui as dpg
 import cv2 as cv
 import cv2 as cv2
 import numpy as np
+import grader
 
 COLUMNS = 9
 ROWS = 20
 ANSWERS = 3
 
 if __name__ == '__main__':
-    paths = ["processed", "toscan", "errored"]
+    processed_data_folder = "process_data/processed"
+    to_process_data_folder = "process_data/to_process"
+    errored_data_folder = "process_data/errored"
+
+    paths = [processed_data_folder, to_process_data_folder, errored_data_folder]
     for p in paths:
         isExist = os.path.exists(p)
         if not isExist:
             os.makedirs(p)
             print(f"Made dir: {p}")
 
-    path = "./toscan"
+    path = to_process_data_folder
     fileList = [join(path, f) for f in os.listdir(path) if isfile(join(path, f))]
     print(fileList)
 
@@ -34,17 +39,18 @@ if __name__ == '__main__':
     def get_next_file(isInitialization):
         global filename, img, boulders, amountZT, triesZT, frame, data, texture_data
         if not isInitialization:
-            shutil.move(filename, "./processed", copy_function=shutil.copy2)
+            shutil.move(filename, processed_data_folder, copy_function=shutil.copy2)
         filename = fileList.pop()
         img, boulders = read_file(filename)
-        amountZT, triesZT = getAmountAndTries(boulders)
+        filled_cells, (ROWS, COLS) = grader.grade_score_form(filename, show_plots=False)
+        amountZT, triesZT = grader.get_amounts_and_tries(filled_cells, ROWS, COLS)
 
         scale_down = 0.6
         frame = cv.resize(img, None, fx=scale_down, fy=scale_down, interpolation=cv.INTER_LINEAR)
 
         data = np.flip(frame, 2)  # because the camera data comes in as BGR and we need RGB
         data = data.ravel()  # flatten camera data to a 1 d stricture
-        data = np.asfarray(data, dtype='f')  # change data type to 32bit floats
+        data = np.float32(data)  # change data type to 32bit floats
         texture_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
         try:
             dpg.set_value("texture_tag", texture_data)

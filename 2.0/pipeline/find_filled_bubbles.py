@@ -104,7 +104,19 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 			neighbourhood = warped_u8[y-med_h//2:y+med_h//2+1, x-med_w//2:x+med_w//2+1]
 			neighbourhood_flattened = neighbourhood.flatten()
 			neighbourhood_flattened_sorted = sorted(neighbourhood_flattened)
-			neighbourhood_flattened_sorted = neighbourhood_flattened_sorted[len(neighbourhood_flattened_sorted)//2:]
+			#neighbourhood_flattened_sorted = neighbourhood_flattened_sorted[len(neighbourhood_flattened_sorted)//3:len(neighbourhood_flattened_sorted)//4*3]
+			neighbourhood_flattened_sorted = neighbourhood_flattened_sorted[len(neighbourhood_flattened_sorted)//2:len(neighbourhood_flattened_sorted)//4*3]
+
+			# plot the histogram of the neighbourhood
+			# plt.figure(figsize=(8, 6))
+			# plt.hist(neighbourhood_flattened, bins=255, range=(0, 255), alpha=0.5, label="Original")
+			# plt.hist(neighbourhood_flattened_sorted, bins=255, range=(0, 255), alpha=0.5, label="Sorted")
+			# plt.title(f"Histogram of Neighbourhood for Bubble at Row {r}, Col {c}")
+			# plt.xlabel("Pixel Intensity")
+			# plt.ylabel("Frequency")
+			# plt.legend()
+			# plt.show()
+
 			neighbourhood_intensity = np.mean(neighbourhood_flattened_sorted)
 
 			neighbourhood_means[r,c] = neighbourhood_intensity
