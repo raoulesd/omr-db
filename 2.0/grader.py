@@ -43,6 +43,6 @@ def grade_score_form(image_path, show_plots=False):
 	if show_plots:
 		bubble_grid.plot_bubble_grid(paper, bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, warped_u8)
 
-	filled_cells, (ROWS, COLS) = find_filled_bubbles.find_filled_bubbles(bubbles, thresh2, warped_u8, med_w, med_h, crit)
+	filled_cells, (ROWS, COLS) = find_filled_bubbles.find_filled_bubbles_alt(bubbles, thresh2, warped_u8, med_w, med_h, crit)
 
 	return filled_cells, (ROWS, COLS)

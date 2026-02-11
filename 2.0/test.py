@@ -9,8 +9,8 @@ import os
 # python test.py -d ./test_forms/train/score20251104_001.png
 
 def read_ground_truth(instance_path):
-	print(f"Reading ground truth from: {instance_path}")
 	ground_truth_path = "."+"".join(instance_path.split(".")[:-1]) + ".csv"
+	print(f"Reading ground truth from: {ground_truth_path}")
 	squares_filled = []
 	with open(ground_truth_path, "r") as f:
 		for line in f:
@@ -48,7 +48,7 @@ def run_on_folder(folder_path):
 		false_negatives += false_neg
 		true_negatives += true_neg
 
-		print(f"Instance score: {compute_score(true_pos, false_pos, false_neg, true_neg)}")
+		print(f"Instance score: {compute_score(true_pos, false_pos, false_neg, true_neg)}\n")
 
 	score = compute_score(true_positives, false_positives, false_negatives, true_negatives)
 
@@ -108,7 +108,7 @@ def compare_result_with_ground_truth(result, ground_truth, num_rows, num_cols):
 	false_negatives_grid[result_grid == 1] = 0
 	false_negatives = np.count_nonzero(false_negatives_grid)
 
-	true_negatives = np.count_nonzero(np.invert(np.bitwise_and(result_grid, ground_truth_grid)))
+	true_negatives = np.count_nonzero(np.bitwise_and(np.logical_not(result_grid), np.logical_not(ground_truth_grid)))
 	
 	return (true_positives, false_positives, false_negatives, true_negatives)
 
