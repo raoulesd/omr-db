@@ -39,7 +39,7 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 	# experiment
 	full_paper_threshold = isodata_threshold(warped_u8.flatten()) + 10
 	thresholded = cv2.threshold(warped_u8, full_paper_threshold, 255, cv2.THRESH_BINARY)
-	plot_paper_gray(thresholded[1], f"Thresholded with full paper threshold {full_paper_threshold:.2f}")
+	#plot_paper_gray(thresholded[1], f"Thresholded with full paper threshold {full_paper_threshold:.2f}")
 
 	# experiment end
 
