@@ -6,4 +6,5 @@ venv/
 1.0/toscan/
 1.0/results.csv/
 
-2.0/test_forms/
+# Ignore all PNG files in the test_forms directory
+2.0/test_forms/**/*.png
