@@ -15,9 +15,9 @@ ROWS = 20
 ANSWERS = 3
 
 if __name__ == '__main__':
-	processed_data_folder = "process_data/processed"
-	to_process_data_folder = "process_data/to_process"
-	errored_data_folder = "process_data/errored"
+	processed_data_folder = "process_data/processed/"
+	to_process_data_folder = "process_data/to_process/"
+	errored_data_folder = "process_data/errored/"
 
 	ui_scale = 1.2
 	
@@ -92,13 +92,11 @@ if __name__ == '__main__':
 
 		# Write the zones and tops amounts on the frame
 		num_boulders = len(per_boulder_ZT)
-		print(per_boulder_ZT)
 		for b in range(num_boulders):
 			zone_x = int(zones_and_tops_width * 0.6)
 			top_x = int(zones_and_tops_width * 0.8)
 			y = int(((b+1) / num_boulders) * frame.shape[0] * 0.99)
 			(zone, top) = per_boulder_ZT[b]
-			print(f"Boulder {b}: zone={zone}, top={top}")
 			if zone is not None:
 				cv2.putText(frame, str(zone), (zone_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
 			if top is not None:
@@ -160,7 +158,7 @@ if __name__ == '__main__':
 		return original_image
 	
 	def on_main_frame_clicked(sender, app_data):
-		global cell_data, frame, row_centers_sorted, col_centers_sorted
+		global cell_data, frame, row_centers_sorted, col_centers_sorted, frame
 
 		# Mouse position in screen space
 		mouse_x, mouse_y = dpg.get_mouse_pos()
@@ -170,7 +168,7 @@ if __name__ == '__main__':
 
 		# Convert to local image coordinates
 		local_x = mouse_x - image_pos[0]
-		local_y = mouse_y - image_pos[1]
+		local_y = mouse_y + image_pos[1]
 
 		# Convert UI-scaled coords back to original image coords
 		scale_x = frame.shape[1] / frame_width
@@ -188,7 +186,7 @@ if __name__ == '__main__':
 		for (row_index, row) in enumerate(row_centers_sorted):
 			dist = np.abs(row-img_y)
 			if closest_row == None or dist < closest_row_distance:
-				closest_row = row_index+1
+				closest_row = row_index
 				closest_row_distance = dist
 
 		for (col_index, col) in enumerate(col_centers_sorted):
@@ -209,6 +207,31 @@ if __name__ == '__main__':
 	def export_to_csv(sender, callback):
 		global amountZT, triesZT, filename
 		get_next_file(False)
+
+	def export_to_ground_truth(sender, callback):
+		global cell_data, filename
+		filled_cells = []
+		for row in range(cell_data.shape[0]):
+			for col in range(cell_data.shape[1]):
+				if cell_data[row, col] == 1:
+					filled_cells.append((row, col))
+
+		pure_file_name = filename.split("\\")[1]
+
+		moved_file_name = processed_data_folder + pure_file_name
+
+		output_file_name = processed_data_folder + pure_file_name.split(".")[0] + ".csv"
+
+		with open(output_file_name, "w") as f:
+			for cell in filled_cells:
+				f.write(f"{cell[0]},{cell[1]}\n")
+
+
+		# Move the png file
+		os.rename(filename, moved_file_name)
+
+		get_next_file(False)
+
 
 
 	get_next_file(True)
@@ -237,6 +260,7 @@ if __name__ == '__main__':
 					dpg.add_text(f"Naam kandidaat:")
 					dpg.add_input_text(tag=f"user_name")
 					dpg.add_button(label="export", callback=export_to_csv)
+					dpg.add_button(label="export to ground truth", callback=export_to_ground_truth)
 
 	dpg.bind_item_handler_registry("main_image", "image_handler")
 

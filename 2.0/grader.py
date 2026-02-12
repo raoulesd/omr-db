@@ -31,7 +31,6 @@ def get_amounts_and_tries(cell_data):
 			is_zone = cell_data[r, c+1] == 1 or is_top
 			is_attempt = cell_data[r, c+0] == 1 or is_top or is_zone
 
-			print(f"Row {r}, Attempt {attempt_number}: is_attempt={is_attempt}, is_zone={is_zone}, is_top={is_top}")
 			if is_attempt:
 				if is_zone and zone_attempts is None:
 					zone_attempts = attempt_number + 1

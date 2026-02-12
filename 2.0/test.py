@@ -92,7 +92,7 @@ def compare_result_with_ground_truth(result, ground_truth, num_rows, num_cols, p
 	result_grid = np.zeros(shape=(num_rows, num_cols), dtype=np.uint8)
 	ground_truth_grid = np.zeros(shape=(num_rows, num_cols), dtype=np.uint8)
 
-	for (x, y, score) in result:
+	for (x, y) in result:
 		result_grid[x, y] = 1
 
 	for (x, y) in ground_truth:
@@ -131,6 +131,8 @@ if args["data"] == "train":
 	run_on_folder("./test_forms/train")
 elif args["data"] == "test":
 	run_on_folder("./test_forms/test")
+elif args["data"] == "bigset":
+	run_on_folder("./test_forms/big_set")
 else:
 	run_on_single_instance(args["data"])
 
