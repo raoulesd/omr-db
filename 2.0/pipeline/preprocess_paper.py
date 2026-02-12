@@ -5,6 +5,13 @@ from imutils.perspective import four_point_transform
 from imutils import contours
 import imutils
 
+def plot_paper(paper, title):
+	plt.figure(figsize=(8, 10))
+	plt.imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
+	plt.title(title)
+	plt.axis("off")
+	plt.show()
+
 def preprocess(image, gray):
 	# Fixed marker IDs by sheet corner
 	ID_TL = 4
@@ -101,8 +108,6 @@ def preprocess(image, gray):
 		paper = four_point_transform(image, docCnt)
 		warped = four_point_transform(gray, docCnt)
 		return paper, warped, corners_list, ids, docCnt
-
-	paper, warped, corners_list, ids, docCnt = aruco_transform(gray)
 
 	def ui_draw_aruco_corners(image, corners_list, ids, docCnt):
 		"""
@@ -217,8 +222,14 @@ def preprocess(image, gray):
 		# original image and grayscale image to obtain a top-down view
 		paper = four_point_transform(image, docCnt.reshape(4, 2))
 		warped = four_point_transform(gray,  docCnt.reshape(4, 2))
-		return paper, warped, docCnt
+		return paper, warped
 
-	paper, warped, question_area_cnt = question_area_transform(warped)
+	try:
+		paper, warped, corners_list, ids, docCnt = aruco_transform(gray)
+	except Exception as e:
+		print(f"Error in aruco_transform: {e}")
+		warped = gray
 
-	return paper, warped, question_area_cnt
+	paper, warped = question_area_transform(warped)
+
+	return paper, warped

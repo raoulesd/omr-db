@@ -137,7 +137,7 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 	threshold = isodata_threshold(neighbourhood_means.flatten())
 	threshold = savgol_threshold(neighbourhood_means.flatten())
 
-	print(f"Chosen threshold for bubble fill classification: {threshold:.2f}")
+	#print(f"Chosen threshold for bubble fill classification: {threshold:.2f}")
 
 	mean_differences = []
 
@@ -199,7 +199,7 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 	for r in range(ROWS):
 		for c in range(COLS):
 			if bubbles_status_grid[r, c] == 1:
-				filled_bubbles.append((r, c, 0))
+				filled_bubbles.append((r, c))
 				
 
 
@@ -424,7 +424,7 @@ def find_filled_bubbles(bubbles, row_centers_sorted, col_centers_sorted, thresh2
 				cy = int(round(row_centers_sorted[r]))
 
 				if score >= fill_threshold:
-					filled_cells.append((r, c, score))
+					filled_cells.append((r, c))
 					cv2.circle(overlay, (cx, cy), rad, (0, 0, 255), 2)  # red = filled
 					cv2.circle(overlay, (cx, cy), 2, (0, 0, 255), -1)
 				else:
