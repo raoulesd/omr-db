@@ -15,7 +15,12 @@ ROWS = 20
 ANSWERS = 3
 
 if __name__ == '__main__':
-	# TODO when folder empty
+	# TODO give error when folder empty
+
+	# TODO add these to a config
+	# TODO add support for these paths on Linux machines
+	# TODO make sure paths work for network drives too
+	# TODO concurrency feature: from 
 	processed_data_folder = "process_data/processed/"
 	to_process_data_folder = "process_data/to_process/"
 	errored_data_folder = "process_data/errored/"
