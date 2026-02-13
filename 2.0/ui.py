@@ -8,288 +8,322 @@ import cv2 as cv
 import cv2 as cv2
 import numpy as np
 import grader
+import numpy as np
 
 COLUMNS = 9
 ROWS = 20
 ANSWERS = 3
 
 if __name__ == '__main__':
-    processed_data_folder = "process_data/processed"
-    to_process_data_folder = "process_data/to_process"
-    errored_data_folder = "process_data/errored"
+	processed_data_folder = "process_data/processed/"
+	to_process_data_folder = "process_data/to_process/"
+	errored_data_folder = "process_data/errored/"
 
-    paths = [processed_data_folder, to_process_data_folder, errored_data_folder]
-    for p in paths:
-        isExist = os.path.exists(p)
-        if not isExist:
-            os.makedirs(p)
-            print(f"Made dir: {p}")
+	ui_scale = 1.2
+	
+	frame_width = int(800 * ui_scale)
+	frame_height = int(455 * ui_scale)
 
-    path = to_process_data_folder
-    fileList = [join(path, f) for f in os.listdir(path) if isfile(join(path, f))]
-    print(fileList)
+	zones_and_tops_width = int(180 * ui_scale)
 
-    csvFile = open("results.csv", "a")
+	name_data_width = int(600 * ui_scale)
+	name_data_height = int(180 * ui_scale)
 
-    dpg.create_context()
-    dpg.create_viewport(title='Review scores', width=1400, height=1000)
-    dpg.setup_dearpygui()
+	paths = [processed_data_folder, to_process_data_folder, errored_data_folder]
+	for p in paths:
+		isExist = os.path.exists(p)
+		if not isExist:
+			os.makedirs(p)
+			print(f"Made dir: {p}")
 
+	path = to_process_data_folder
+	fileList = [join(path, f) for f in os.listdir(path) if isfile(join(path, f))]
+	#print(fileList)
 
-    def get_next_file(isInitialization):
-        global filename, img, boulders, amountZT, triesZT, frame, data, texture_data
-        if not isInitialization:
-            shutil.move(filename, processed_data_folder, copy_function=shutil.copy2)
-        filename = fileList.pop()
-        img, boulders = read_file(filename)
-        filled_cells, (ROWS, COLS) = grader.grade_score_form(filename, show_plots=False)
-        amountZT, triesZT = grader.get_amounts_and_tries(filled_cells, ROWS, COLS)
+	csvFile = open("results.csv", "a")
 
-        scale_down = 0.6
-        frame = cv.resize(img, None, fx=scale_down, fy=scale_down, interpolation=cv.INTER_LINEAR)
+	dpg.create_context()
+	dpg.create_viewport(title='Review scores', width=1400, height=1000)
+	dpg.setup_dearpygui()
 
-        data = np.flip(frame, 2)  # because the camera data comes in as BGR and we need RGB
-        data = data.ravel()  # flatten camera data to a 1 d stricture
-        data = np.float32(data)  # change data type to 32bit floats
-        texture_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
-        try:
-            dpg.set_value("texture_tag", texture_data)
-            for i in range(1, ROWS + 1):
-                dpg.set_value(f"zone_{i}", str(boulders[i - 1][1]))
-                dpg.set_value(f"tops_{i}", str(boulders[i - 1][2]))
-                update_amount_and_tries()
-                dpg.set_value("user_name", "")
-        except:
-            print("first time")
+	def get_next_file(is_initialization):
+		global filename, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page
 
+		if len(fileList) == 0:
+			print("No more files to process.")
+			return
 
-    def read_file(filename):
-        COLUMNS = 9
-        ROWS = 30
-        ANSWERS = 3
+		filename = fileList.pop()
+		
+		filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False)
 
-        epsilon = 10  # image error sensitivity
+		cell_data = np.zeros((ROWS, COLS), dtype=np.uint8)
+		for (r, c) in filled_cells:
+			cell_data[r, c] = 1
 
-        # load tracking tags
-        tags = [cv2.imread("./markers/top_left.png", cv2.IMREAD_GRAYSCALE),
-                cv2.imread("./markers/top_right.png", cv2.IMREAD_GRAYSCALE),
-                cv2.imread("./markers/bottom_left.png", cv2.IMREAD_GRAYSCALE),
-                cv2.imread("./markers/bottom_right.png", cv2.IMREAD_GRAYSCALE)]
+		if len(warped_u8.shape) == 2:
+			warped_u8 = cv2.cvtColor(warped_u8, cv2.COLOR_GRAY2RGB)
+		frame = warped_u8
 
-        scaling = [869.0, 840.0]  # scaling factor for 8.5in. x 11in. paper
-        columns = [[52.8 / scaling[0], 63.2 / scaling[1]]]  # dimensions of the columns of bubbles
-        colspace = 77.5 / scaling[0]
-        radius = 6.0 / scaling[0]  # radius of the bubbles
-        spacing = [25.02 / scaling[0], 20.20 / scaling[1]]  # spacing of the rows and columns
+		draw_data()
 
-        # Load the image from file
-        img = cv2.imread(filename)
-        height, width, channels = img.shape
+	def draw_data():
+		global cell_data, full_page, amountZT, triesZT, per_boulder_ZT, frame
 
-        def FindCorners(paper, drawRect):
-            corners = [[], [], [], []]
-            gray_paper = cv2.cvtColor(paper, cv2.COLOR_BGR2GRAY)  # convert image of paper to grayscale
+		amountZT, triesZT, per_boulder_ZT = grader.get_amounts_and_tries(cell_data)
 
-            # scaling factor used later
-            ratio = height / width
-
-            # error detection
-            if ratio == 0:
-                return -1
-
-            dictionary = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_6X6_250)
-            parameters = cv.aruco.DetectorParameters()
-            detector = cv.aruco.ArucoDetector(dictionary, parameters)
-
-            markerCorners, markerIds, rejectedCandidates = detector.detectMarkers(gray_paper)
-            for corner, id in zip(markerCorners, markerIds):
-                # print(corner[:,0][0])
-                if id == 3:
-                    corners[1] = [int(corner[0, :,0].mean()), int(corner[0, :, 1].mean())]
-                elif id == 2:
-                    corners[3] = [int(corner[0, :, 0].mean()), int(corner[0, :, 1].mean())]
-                elif id == 1:
-                    corners[2] = [int(corner[0, :, 0].mean()), int(corner[0, :, 1].mean())]
-                elif id == 4:
-                    corners[0] = [int(corner[0, :, 0].mean()), int(corner[0, :, 1].mean())]
-
-            # draw the rectangle around the detected markers
-            if drawRect:
-                for corner in corners:
-                    cv2.circle(paper, (corner[0], corner[1]), 20, (0, 255, 0), -1)
-
-            return corners
-
-        corners = FindCorners(img, False)
-        print(corners)
-
-        desired_points = np.float32([[68, 424], [1489, 424], [68, 1797], [1489, 1797]])
-        points = np.float32(corners)
-
-        M = cv2.getPerspectiveTransform(points, desired_points)
-        sheet = cv2.warpPerspective(img, M, (1589, 1997))
-
-        img = sheet
-        height, width, channels = img.shape
-        corners = FindCorners(img, True)
-
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-        # Threshold the image to binarize it
-        treshImg, thresh = cv2.threshold(gray, 230, 255, cv2.THRESH_BINARY_INV)
-
-        xdis, ydis = corners[3][0] - corners[0][0], corners[3][1] - corners[0][1]
-        answersBoundingbox = [(int(corners[0][0] + 0.035 * xdis), corners[0][1] + int(0.055 * ydis)),
-                              (corners[3][0] - int(0.15 * xdis), corners[3][1] - int(0.21 * ydis))]
-        cv2.rectangle(img, answersBoundingbox[0],
-                      answersBoundingbox[1], (0, 255, 0), thickness=2, lineType=8, shift=0)
-
-        # calculate dimensions for scaling
-        dimensions = [corners[1][0] - corners[0][0], corners[2][1] - corners[0][1]]
-
-        boulders = list()
-        for i in range(0, ROWS):
-            boulders.append([0, 0, 0])
-
-        # iterate over test questions
-        for i in range(0, ROWS):  # rows
-            for k in range(0, COLUMNS):  # columns
-                for j in range(0, ANSWERS):  # answers
-                    # coordinates of the answer bubble
-                    x1 = int((columns[0][0] + colspace * k + j * spacing[0] - radius) * dimensions[0] + corners[0][0])
-                    y1 = int((columns[0][1] + i * spacing[1] - radius) * dimensions[1] + corners[0][1])
-                    x2 = int((columns[0][0] + colspace * k + j * spacing[0] + radius) * dimensions[0] + corners[0][0])
-                    y2 = int((columns[0][1] + i * spacing[1] + radius) * dimensions[1] + corners[0][1])
-
-                    # draw rectangles around bubbles
-                    cv2.rectangle(img, (x1, y1), (x2, y2), (255, 0, 0), thickness=1, lineType=8, shift=0)
-
-                    roi = thresh[y1:y2, x1:x2]
-
-                    percentile = (np.sum(roi == 255) / ((y2 - y1) * (x2 - x1))) * 100
-
-                    if percentile > 42.0:
-                        if j == 0:
-                            boulders[i][j] = k + 1
-                        if j == 1 and boulders[i][1] == 0:
-                            boulders[i][j] = k + 1
-                            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), thickness=2, lineType=8, shift=0)
-                        if j == 2:
-                            boulders[i][j] = k + 1
-                            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), thickness=2, lineType=8, shift=0)
-                            if boulders[i][1] == 0:
-                                boulders[i][1] = k + 1
-
-        for i in range(0, ROWS):
-            x1 = int((columns[0][0] + colspace * 9.7) * dimensions[0] + corners[0][0])
-            y1 = int((columns[0][1] + 0.005 + i * spacing[1]) * dimensions[1] + corners[0][1])
-            cv2.putText(img, str(boulders[i][1]), (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 190, 0), 2)
-
-            x2 = int((columns[0][0] + colspace * 10.5) * dimensions[0] + corners[0][0])
-            cv2.putText(img, str(boulders[i][2]), (x2, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 190, 0), 2)
-
-        return img, boulders
+		draw_frame(frame)
+		draw_zones_and_tops(full_page)
+		draw_name_data(full_page)
 
 
-    def getAmountAndTries(boulders):
-        amountZT = [0, 0]
-        triesZT = [0, 0]
-        for i in range(0, len(boulders)):
-            triesZT[0] += boulders[i][1]
-            triesZT[1] += boulders[i][2]
-            if boulders[i][1] != 0:
-                amountZT[0] += 1
-            if boulders[i][2] != 0:
-                amountZT[1] += 1
-        return amountZT, triesZT
+	def extract_zones_and_tops_area(frame):
+		y_min = int(0.22 * frame.shape[0])
+		y_max = int(0.5 * frame.shape[0])
+		x_min = int(0.8 * frame.shape[1])
+		x_max = int(0.915 * frame.shape[1])
+		x_max = int(1 * frame.shape[1])
+
+		cutout = frame[y_min:y_max, x_min:x_max]
+
+		return cv2.resize(cutout, (zones_and_tops_width, frame_height), interpolation=cv2.INTER_LINEAR)
 
 
-    def export_to_csv(sender, callback):
-        global boulders, amountZT, triesZT, filename
-        name = dpg.get_value("user_name")
-        exportString = f"{name},"
-        exportString += filename[9:]
-        amountZT = [0, 0]
-        triesZT = [0, 0]
-        for i in range(0, len(boulders)):
-            triesZT[0] += boulders[i][1]
-            triesZT[1] += boulders[i][2]
-            if boulders[i][1] != 0:
-                amountZT[0] += 1
-            if boulders[i][2] != 0:
-                amountZT[1] += 1
-            exportString += f",B{i + 1} T{boulders[i][2]}Z{boulders[i][1]}"
-        exportString += f",{amountZT[1]},{amountZT[0]}"
-        exportString += f",{triesZT[1]},{triesZT[0]}"
-        csvFile.write(f"{exportString}\n")
-        csvFile.flush()
-        get_next_file(False)
+	def extract_name_area(frame):
+		y_min = int(0.05 * frame.shape[0])
+		y_max = int(0.16 * frame.shape[0])
+		x_min = int(0.38 * frame.shape[1])
+		x_max = int(0.85 * frame.shape[1])
+
+		cutout = frame[y_min:y_max, x_min:x_max]
+
+		return cv2.resize(cutout, (name_data_width, name_data_height), interpolation=cv2.INTER_LINEAR)
+
+	def draw_name_data(frame):
+		global name_texture_data
+		frame = frame.copy()
+
+		frame = extract_name_area(frame)
+		
+		try:
+			#data = cv2.cvtColor(frame, cv2.COLOR_rGR2RGB)  # because the camera data comes in as BGR and we need RGB
+			data = frame
+			data = data.flatten()  # flatten camera data to a 1 d stricture
+			data = np.float32(data)  # change data type to 32bit floats
+			name_texture_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
+			dpg.set_value("name_texture", name_texture_data)
+		except Exception as e:
+			print(f"Error processing file {filename}: {e}")
+			return
+
+	def draw_zones_and_tops(frame):
+		global zones_and_tops_texture_data, amountZT, triesZT, per_boulder_ZT
+		frame = frame.copy()
+
+		frame = extract_zones_and_tops_area(frame)
+
+		# Write the zones and tops amounts on the frame
+		num_boulders = len(per_boulder_ZT)
+		for b in range(num_boulders):
+			zone_x = int(zones_and_tops_width * 0.6)
+			top_x = int(zones_and_tops_width * 0.8)
+			y = int(((b+1) / num_boulders) * frame.shape[0] * 0.99)
+			(zone, top) = per_boulder_ZT[b]
+			if zone is not None:
+				cv2.putText(frame, str(zone), (zone_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+			if top is not None:
+				cv2.putText(frame, str(top), (top_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+		
+		try:
+			#data = cv2.cvtColor(frame, cv2.COLOR_rGR2RGB)  # because the camera data comes in as BGR and we need RGB
+			data = frame
+			data = data.flatten()  # flatten camera data to a 1 d stricture
+			data = np.float32(data)  # change data type to 32bit floats
+			zones_and_tops_texture_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
+			dpg.set_value("zones_and_tops_texture", zones_and_tops_texture_data)
+		except Exception as e:
+			print(f"Error processing file {filename}: {e}")
+			return
+		
+	def draw_frame(frame):
+		global texture_data
+		
+		frame = frame.copy()
+
+		frame = draw_grid(frame)
+
+		#frame_height = int(frame.shape[0] * (frame_width / frame.shape[1]))
+		#print(frame_height)
+		#print(frame.shape)
+		frame = cv2.resize(frame, (frame_width, frame_height), interpolation=cv2.INTER_LINEAR)
+		
+		try:
+			#data = cv2.cvtColor(frame, cv2.COLOR_rGR2RGB)  # because the camera data comes in as BGR and we need RGB
+			data = frame
+			data = data.flatten()  # flatten camera data to a 1 d stricture
+			data = np.float32(data)  # change data type to 32bit floats
+			texture_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
+			dpg.set_value("texture_tag", texture_data)
+		except Exception as e:
+			print(f"Error processing file {filename}: {e}")
+			return
+
+		
+	def draw_grid(frame):
+		global row_centers_sorted, col_centers_sorted, med_w, med_h
+
+		original_image = frame.copy()
+
+		num_rows = cell_data.shape[0]
+		num_cols = cell_data.shape[1]
+
+		for row in range(num_rows):
+			for col in range(num_cols):
+				x = int(col_centers_sorted[col])
+				y = int(row_centers_sorted[row])
+
+				# Draw a circle around the bubble
+				circle_color = (0, 255, 0) if cell_data[row, col] == 1 else (255, 0, 0)
+				circle_thickness = 2 if cell_data[row, col] == 1 else 1
+				cv2.circle(original_image, (x, y), int(med_w * 0.9), circle_color, circle_thickness)
+
+		return original_image
+	
+	def on_main_frame_clicked(sender, app_data):
+		global cell_data, frame, row_centers_sorted, col_centers_sorted, frame
+
+		# Mouse position in screen space
+		mouse_x, mouse_y = dpg.get_mouse_pos()
+
+		# Get image position in screen space
+		image_pos = dpg.get_item_rect_min("main_image")
+
+		# Convert to local image coordinates
+		local_x = mouse_x - image_pos[0]
+		local_y = mouse_y + image_pos[1]
+
+		# Convert UI-scaled coords back to original image coords
+		scale_x = frame.shape[1] / frame_width
+		scale_y = frame.shape[0] / frame_height
+
+		img_x = int(local_x * scale_x)
+		img_y = int(local_y * scale_y)
+
+		# Find the closest row and column
+		closest_row = None
+		closest_row_distance = None
+		closest_col = None
+		closest_col_distance = None
+
+		for (row_index, row) in enumerate(row_centers_sorted):
+			dist = np.abs(row-img_y)
+			if closest_row == None or dist < closest_row_distance:
+				closest_row = row_index
+				closest_row_distance = dist
+
+		for (col_index, col) in enumerate(col_centers_sorted):
+			dist = np.abs(col-img_x)
+			if closest_col == None or dist < closest_col_distance:
+				closest_col = col_index
+				closest_col_distance = dist
+
+		if cell_data[closest_row, closest_col] == 1:
+			cell_data[closest_row, closest_col] = 0
+		else:
+			cell_data[closest_row, closest_col] = 1
+		
+
+		draw_data()
+		
+
+	def export_to_csv(sender, callback):
+		global amountZT, triesZT, filename, per_boulder_ZT
+		name = dpg.get_value("user_name")
+		exportString = f"{name},"
+		file_path = filename
+		only_file_name = file_path.split("/")[-1]
+		exportString += only_file_name
+		for i in range(0, len(per_boulder_ZT)):
+			(zone, top) = per_boulder_ZT[i]
+			if zone is None:
+				zone = 0
+			if top is None:
+				top = 0
+			exportString += f",B{i + 1} T{top}Z{zone}"
+		exportString += f",{amountZT[1]},{amountZT[0]}"
+		exportString += f",{triesZT[1]},{triesZT[0]}"
+		csvFile.write(f"{exportString}\n")
+		csvFile.flush()
+
+		# Move the png file
+		moved_file_name = processed_data_folder + only_file_name
+		os.rename(filename, moved_file_name)
+
+		dpg.set_value("user_name", "")
+		get_next_file(False)
+
+	def export_to_ground_truth(sender, callback):
+		global cell_data, filename
+		filled_cells = []
+		for row in range(cell_data.shape[0]):
+			for col in range(cell_data.shape[1]):
+				if cell_data[row, col] == 1:
+					filled_cells.append((row, col))
+
+		pure_file_name = filename.split("\\")[1]
+
+		moved_file_name = processed_data_folder + pure_file_name
+
+		output_file_name = processed_data_folder + pure_file_name.split(".")[0] + ".csv"
+
+		with open(output_file_name, "w") as f:
+			for cell in filled_cells:
+				f.write(f"{cell[0]},{cell[1]}\n")
 
 
-    def update_amount_and_tries():
-        global amountZT, triesZT
-        dpg.set_value("zone_total", amountZT[0])
-        dpg.set_value("tops_total", amountZT[1])
-        dpg.set_value("zone_tries", triesZT[0])
-        dpg.set_value("tops_tries", triesZT[1])
+		# Move the png file
+		os.rename(filename, moved_file_name)
+
+		get_next_file(False)
 
 
-    def set_boulders(sender, app_data, user_data):
-        global boulders, amountZT, triesZT
-        try:
-            boulders[user_data[0]][user_data[1]] = int(dpg.get_value(item=sender))
-            amountZT, triesZT = getAmountAndTries(boulders)
-            update_amount_and_tries()
-        except ValueError:
-            print("no change since no integer was inputted")
+
+	get_next_file(True)
+
+	with dpg.texture_registry(show=False):
+		dpg.add_raw_texture(frame_width, frame_height, texture_data, tag="texture_tag",
+							format=dpg.mvFormat_Float_rgb)
+		dpg.add_raw_texture(zones_and_tops_width, frame_height, zones_and_tops_texture_data, tag="zones_and_tops_texture",
+							format=dpg.mvFormat_Float_rgb)
+		dpg.add_raw_texture(name_data_width, name_data_height, name_texture_data, tag="name_texture",
+							format=dpg.mvFormat_Float_rgb)
+		
+	with dpg.item_handler_registry(tag="image_handler"):
+		dpg.add_item_clicked_handler(callback=on_main_frame_clicked)
 
 
-    get_next_file(True)
+	with dpg.window(label="resultstester", tag="mainWindow"):
+		with dpg.table(header_row=False):
+			dpg.add_table_column(width_stretch=True)
+			dpg.add_table_column(width_fixed=True, init_width_or_weight=250.0)
+			with dpg.table_row():
+				with dpg.table_cell():
+					dpg.add_image("texture_tag", tag="main_image")
+				with dpg.table_cell():
+					dpg.add_image("zones_and_tops_texture")
+			with dpg.table_row():
+				with dpg.table_cell():
+					dpg.add_image("name_texture")
+			with dpg.table_row():
+				with dpg.table_cell():
+					dpg.add_text(f"Naam kandidaat:")
+					dpg.add_input_text(tag=f"user_name")
+					dpg.add_button(label="export", callback=export_to_csv)
+					dpg.add_button(label="export to ground truth", callback=export_to_ground_truth)
 
-    with dpg.texture_registry(show=False):
-        dpg.add_raw_texture(frame.shape[1], frame.shape[0], texture_data, tag="texture_tag",
-                            format=dpg.mvFormat_Float_rgb)
+	dpg.bind_item_handler_registry("main_image", "image_handler")
 
-    with dpg.window(label="resultstester", tag="mainWindow"):
-        with dpg.table(header_row=False):
-            dpg.add_table_column(width_stretch=True)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=250.0)
-            with dpg.table_row():
-                with dpg.table_cell():
-                    dpg.add_image("texture_tag")
-                with dpg.table_cell():
-                    dpg.add_text(f"Naam kandidaat:")
-                    dpg.add_input_text(tag=f"user_name")
-                    with dpg.table(header_row=False):
-                        dpg.add_table_column(width_fixed=True)
-                        dpg.add_table_column(width_fixed=True)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=40)
-                        dpg.add_table_column(width_fixed=True)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=40)
-                        for i in range(1, ROWS + 1):
-                            with dpg.table_row():
-                                dpg.add_text(f"B{i}")
-                                dpg.add_text("Z")
-                                dpg.add_input_text(tag=f"zone_{i}", default_value=str(boulders[i - 1][1]),
-                                                   callback=set_boulders, user_data=[i - 1, 1], decimal=True)
-                                dpg.add_text("T")
-                                dpg.add_input_text(tag=f"tops_{i}", default_value=str(boulders[i - 1][2]),
-                                                   callback=set_boulders, user_data=[i - 1, 2], decimal=True)
-                        with dpg.table_row():
-                            dpg.add_text("Aantal")
-                            dpg.add_text("Z")
-                            dpg.add_input_text(tag=f"zone_total", default_value=str(amountZT[0]))
-                            dpg.add_text("T")
-                            dpg.add_input_text(tag=f"tops_total", default_value=str(amountZT[1]))
-                        with dpg.table_row():
-                            dpg.add_text("Pogingen")
-                            dpg.add_text("Z")
-                            dpg.add_input_text(tag=f"zone_tries", default_value=str(triesZT[0]))
-                            dpg.add_text("T")
-                            dpg.add_input_text(tag=f"tops_tries", default_value=str(triesZT[1]))
-                    dpg.add_button(label="export", callback=export_to_csv)
-
-    dpg.show_viewport()
-    dpg.set_primary_window("mainWindow", True)
-    dpg.start_dearpygui()
-    dpg.destroy_context()
+	dpg.show_viewport()
+	dpg.set_primary_window("mainWindow", True)
+	dpg.start_dearpygui()
+	dpg.destroy_context()
