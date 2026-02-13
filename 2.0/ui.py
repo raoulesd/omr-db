@@ -15,6 +15,7 @@ ROWS = 20
 ANSWERS = 3
 
 if __name__ == '__main__':
+	# TODO when folder empty
 	processed_data_folder = "process_data/processed/"
 	to_process_data_folder = "process_data/to_process/"
 	errored_data_folder = "process_data/errored/"
@@ -23,6 +24,8 @@ if __name__ == '__main__':
 	
 	frame_width = int(800 * ui_scale)
 	frame_height = int(455 * ui_scale)
+
+	attempt_totals_height = int(100 * ui_scale)
 
 	zones_and_tops_width = int(180 * ui_scale)
 
@@ -75,19 +78,29 @@ if __name__ == '__main__':
 		draw_frame(frame)
 		draw_zones_and_tops(full_page)
 		draw_name_data(full_page)
+		draw_attempts_total(full_page)
 
 
 	def extract_zones_and_tops_area(frame):
 		y_min = int(0.22 * frame.shape[0])
 		y_max = int(0.5 * frame.shape[0])
 		x_min = int(0.8 * frame.shape[1])
-		x_max = int(0.915 * frame.shape[1])
+		# x_max = int(0.915 * frame.shape[1])
 		x_max = int(1 * frame.shape[1])
 
 		cutout = frame[y_min:y_max, x_min:x_max]
 
 		return cv2.resize(cutout, (zones_and_tops_width, frame_height), interpolation=cv2.INTER_LINEAR)
 
+	def extract_attempts_total(frame):
+		y_min = int(0.67 * frame.shape[0])
+		y_max = int(0.74 * frame.shape[0])
+		x_min = int(0.8 * frame.shape[1])
+		x_max = int(1 * frame.shape[1])
+
+		cutout = frame[y_min:y_max, x_min:x_max]
+		
+		return cv2.resize(cutout, (zones_and_tops_width, attempt_totals_height), interpolation=cv2.INTER_LINEAR)
 
 	def extract_name_area(frame):
 		y_min = int(0.05 * frame.shape[0])
@@ -98,6 +111,42 @@ if __name__ == '__main__':
 		cutout = frame[y_min:y_max, x_min:x_max]
 
 		return cv2.resize(cutout, (name_data_width, name_data_height), interpolation=cv2.INTER_LINEAR)
+
+	def draw_attempts_total(frame):
+		global attempts_total_data, amountZT, triesZT
+		frame = frame.copy()
+
+		frame = extract_attempts_total(frame)
+
+		# amount_string = f",{amountZT[1]} {amountZT[0]}"
+		# tries_string = f",{triesZT[1]} {triesZT[0]}"
+
+		zone_x = int(zones_and_tops_width * 0.6)
+		top_x = int(zones_and_tops_width * 0.8)
+		y_amount = int(0.4 * frame.shape[0] * 0.99)
+		y_tries = int(0.8 * frame.shape[0] * 0.99)
+
+		if amountZT is not None:
+			cv2.putText(frame, str(amountZT[0]), (zone_x, y_amount), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+			cv2.putText(frame, str(amountZT[1]), (top_x, y_amount), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+		if triesZT is not None:
+			cv2.putText(frame, str(triesZT[0]), (zone_x, y_tries), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+			cv2.putText(frame, str(triesZT[1]), (top_x, y_tries), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+		
+
+		try:
+			#data = cv2.cvtColor(frame, cv2.COLOR_rGR2RGB)  # because the camera data comes in as BGR and we need RGB
+			data = frame
+			data = data.flatten()  # flatten camera data to a 1 d stricture
+			data = np.float32(data)  # change data type to 32bit floats
+			attempts_total_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
+			dpg.set_value("attempts_total_texture", attempts_total_data)
+		except Exception as e:
+			print(f"Error processing file {filename}: {e}")
+			return
+
+
 
 	def draw_name_data(frame):
 		global name_texture_data
@@ -297,6 +346,9 @@ if __name__ == '__main__':
 							format=dpg.mvFormat_Float_rgb)
 		dpg.add_raw_texture(name_data_width, name_data_height, name_texture_data, tag="name_texture",
 							format=dpg.mvFormat_Float_rgb)
+		dpg.add_raw_texture(zones_and_tops_width, attempt_totals_height, attempts_total_data, tag="attempts_total_texture",
+							format=dpg.mvFormat_Float_rgb)
+							
 		
 	with dpg.item_handler_registry(tag="image_handler"):
 		dpg.add_item_clicked_handler(callback=on_main_frame_clicked)
@@ -314,12 +366,15 @@ if __name__ == '__main__':
 			with dpg.table_row():
 				with dpg.table_cell():
 					dpg.add_image("name_texture")
+				with dpg.table_cell():
+					dpg.add_image("attempts_total_texture")
 			with dpg.table_row():
 				with dpg.table_cell():
 					dpg.add_text(f"Naam kandidaat:")
 					dpg.add_input_text(tag=f"user_name")
 					dpg.add_button(label="export", callback=export_to_csv)
 					dpg.add_button(label="export to ground truth", callback=export_to_ground_truth)
+
 
 	dpg.bind_item_handler_registry("main_image", "image_handler")
 

@@ -9,3 +9,4 @@ venv/
 # Ignore all PNG files in the test_forms directory
 2.0/test_forms/**/*.png
 2.0/process_data/**/*.png
+2.0/results.csv
