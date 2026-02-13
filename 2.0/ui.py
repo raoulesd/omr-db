@@ -17,10 +17,13 @@ ANSWERS = 3
 if __name__ == '__main__':
 	# TODO give error when folder empty
 
-	# TODO add these to a config
+	# TODO add variable/paths to a config
 	# TODO add support for these paths on Linux machines
 	# TODO make sure paths work for network drives too
-	# TODO concurrency feature: from 
+	# TODO concurrency feature: should copy from a 'scanned' folder to 'to scan' folder. So multiple instances of this program can process at the same time on the same 'scanned' directory (csv concats are ez)
+	# TODO crop main_frame in such a way that boulder numbers and attempt numbers are visible
+	# TODO add OCR support for name (only needed during DBIYO when names are printed)
+	# TODO either add config for all custom areas of a specific form format, or make these areas dynamically detectable
 	processed_data_folder = "process_data/processed/"
 	to_process_data_folder = "process_data/to_process/"
 	errored_data_folder = "process_data/errored/"
@@ -293,7 +296,9 @@ if __name__ == '__main__':
 	def export_to_csv(sender, callback):
 		global amountZT, triesZT, filename, per_boulder_ZT
 		name = dpg.get_value("user_name")
+		sex = "M" if dpg.get_value("is_male") else "V"
 		exportString = f"{name},"
+		exportString += f"{sex},"
 		file_path = filename
 		only_file_name = file_path.split("/")[-1]
 		exportString += only_file_name
@@ -340,8 +345,6 @@ if __name__ == '__main__':
 
 		get_next_file(False)
 
-
-
 	get_next_file(True)
 
 	with dpg.texture_registry(show=False):
@@ -377,6 +380,8 @@ if __name__ == '__main__':
 				with dpg.table_cell():
 					dpg.add_text(f"Naam kandidaat:")
 					dpg.add_input_text(tag=f"user_name")
+					dpg.add_text(f"Is kandidaat man?")
+					dpg.add_checkbox(tag=f"is_male", default_value = True)
 					dpg.add_button(label="export", callback=export_to_csv)
 					dpg.add_button(label="export to ground truth", callback=export_to_ground_truth)
 
