@@ -22,7 +22,7 @@ if __name__ == '__main__':
 	# TODO make sure paths work for network drives too
 	# TODO concurrency feature: should copy from a 'scanned' folder to 'to scan' folder. So multiple instances of this program can process at the same time on the same 'scanned' directory (csv concats are ez)
 	# TODO crop main_frame in such a way that boulder numbers and attempt numbers are visible
-	# TODO add OCR support for name (only needed during DBIYO when names are printed)
+	# TODO add OCR support for name, and support for entering birth year (only needed during DBIYO when names and birth year are printed)
 	# TODO either add config for all custom areas of a specific form format, or make these areas dynamically detectable
 	processed_data_folder = "process_data/processed/"
 	to_process_data_folder = "process_data/to_process/"
@@ -125,9 +125,6 @@ if __name__ == '__main__':
 		frame = frame.copy()
 
 		frame = extract_attempts_total(frame)
-
-		# amount_string = f",{amountZT[1]} {amountZT[0]}"
-		# tries_string = f",{triesZT[1]} {triesZT[0]}"
 
 		zone_x = int(zones_and_tops_width * 0.6)
 		top_x = int(zones_and_tops_width * 0.8)
