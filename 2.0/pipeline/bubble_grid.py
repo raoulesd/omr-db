@@ -15,8 +15,14 @@ def compute_bubble_grid(questionCnts, thresh2, warped_u8):
 	:param warped_u8: Warped grayscale image normalized to uint8 (0..255)
 	"""
 
-	ROWS = 20
-	COLS = 27  # 3 groups * 9 columns
+	plt.figure(figsize=(8, 10))
+	plt.imshow(cv2.cvtColor(warped_u8, cv2.COLOR_BGR2RGB))
+	plt.title("bubble contours")
+	plt.axis("off")
+	plt.show()
+
+	ROWS = 30
+	COLS = 15  # 3 groups * 9 columns
 
 	# --- 1) Compute centroids + basic size estimate
 	bubbles = []
@@ -74,7 +80,10 @@ def compute_bubble_grid(questionCnts, thresh2, warped_u8):
 	# Attach (row, col) to each bubble
 	for i, b in enumerate(bubbles):
 		b["row"] = row_map[int(row_labels[i][0])]
-		b["col"] = col_map[int(col_labels[i][0])]
+		b["col"] = col_map[int(col_labels[i][0])]\
+
+	plot_bubble_grid(warped_u8, bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, warped_u8)
+
 	return bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, crit
 
 
@@ -123,9 +132,9 @@ def detect_bubbles(warped):
 		cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
 		iterations=1
 	)
-	4
-	# Optional: if the page border is thick / present, clear a small margin
-	# so it cannot appear as one giant contour
+	
+	# # Optional: if the page border is thick / present, clear a small margin
+	# # so it cannot appear as one giant contour
 	h, w = thresh2.shape[:2]
 	margin = 5
 	thresh2[:margin, :] = 0
@@ -186,14 +195,29 @@ def detect_bubbles(warped):
 
 		# ---- Tune these thresholds ----
 		# Good starting points for "0"-like blobs:
-		if circularity < 0.55:
+		if circularity < 0.8:
 			continue
-		if extent < 0.30:
+		if extent < 0.60:
 			continue
-		if solidity < 0.80:
+		if solidity < 0.90:
 			continue
 
 		questionCnts.append(c)
+
+	# Copy original image to draw on
+	output = cv2.cvtColor(warped, cv2.COLOR_GRAY2BGR)
+
+
+	# Draw all contours
+	cv2.drawContours(output, questionCnts, -1, (0, 255, 0), 2)
+
+	scale = 0.25  # 25% of original size
+	small = cv2.resize(output, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+
+	# Show result
+	cv2.imshow("Contours", small)
+	cv2.waitKey(0)
+
 	return questionCnts, thresh2, warped_u8
 
 

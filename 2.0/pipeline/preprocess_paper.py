@@ -230,6 +230,6 @@ def preprocess(image, gray):
 		print(f"Error in aruco_transform: {e}")
 		warped = gray
 
-	paper, warped = question_area_transform(warped)
+	# paper, warped = question_area_transform(warped)
 
 	return paper, warped

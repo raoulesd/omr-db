@@ -56,7 +56,7 @@ if __name__ == '__main__':
 	dpg.create_context()
 	dpg.create_viewport(title='Review scores', width=1400, height=1000)
 	dpg.setup_dearpygui()
-
+	
 	def get_next_file(is_initialization):
 		global filename, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page
 

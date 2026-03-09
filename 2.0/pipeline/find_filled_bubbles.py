@@ -79,8 +79,8 @@ def diff_with_offset(img1, img2, offset_x, offset_y):
 		img2_offset = np.pad(img2_offset, ((0, 0), (0, -offset_x)), mode='constant')[:, -offset_x:]
 
 def find_filled_bubbles_alt2(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit):
-	ROWS = 20
-	COLS = 27
+	ROWS = 30
+	COLS = 15
 
 	# experiment
 	full_paper_threshold = isodata_threshold(warped_u8.flatten()) + 10
@@ -91,8 +91,8 @@ def find_filled_bubbles_alt2(bubbles, row_centers_sorted, col_centers_sorted, th
 
 
 def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit):
-	ROWS = 20
-	COLS = 27
+	ROWS = 30
+	COLS = 15
 
 	neighbourhood_means = np.zeros(shape=(ROWS, COLS))
 
@@ -304,8 +304,8 @@ def find_filled_bubbles(bubbles, row_centers_sorted, col_centers_sorted, thresh2
 		fill_threshold = float(np.mean(sc_centers))  # simple midpoint between cluster centers
 
 
-		ROWS = 20
-		COLS = 27
+		ROWS = 30
+		COLS = 15
 
 		overlay = paper.copy()
 
