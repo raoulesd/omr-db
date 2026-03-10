@@ -123,8 +123,6 @@ def savgol_threshold(values, window_length=13, polyorder=3, multiplier=1.0, debu
 
 	# Smooth the histogram counts using Savitzky-Golay filter
 	smooth_counts = scipy.signal.savgol_filter(counts, window_length=window_length, polyorder=polyorder)
-	#width = 7
-	#y = np.convolve(counts, np.ones(width)/width, mode='same')  # simple moving average for comparison
 	y = smooth_counts
 	threshold = np.argmin(y[isodata_t:isodata_t+15]) + isodata_t
 
@@ -140,22 +138,6 @@ def savgol_threshold(values, window_length=13, polyorder=3, multiplier=1.0, debu
 		)
 		debug_steps.append(("Fill Detection - Savgol Threshold Graph", graph))
 
-	#print(f"Isodata threshold: {isodata_t:.2f} | Savgol threshold: {threshold:.2f}")
-
-
-	# plot the histogram and smoothed curve
-	# plt.figure(figsize=(8, 6))
-	# plt.bar(bins, counts, width=1, label='Histogram')
-	# #plt.plot(bins, smooth_counts, color='red', label='Smoothed')
-	# plt.plot(bins, y, color='blue', label='y')
-	# # show the threshold
-	# plt.axvline(x=isodata_t, color='green', linestyle='--', label=f'Isodata Threshold ({isodata_t:.2f})')
-	# plt.axvline(x=threshold, color='orange', linestyle='--', label=f'Savgol Threshold ({threshold:.2f})')
-	# plt.title("Histogram of Values with Savitzky-Golay Smoothing")
-	# plt.xlabel("Value")
-	# plt.ylabel("Frequency")
-	# plt.legend()
-	# plt.show()
 	return threshold
 
 def diff_with_offset(img1, img2, offset_x, offset_y):
@@ -170,11 +152,8 @@ def diff_with_offset(img1, img2, offset_x, offset_y):
 		img2_offset = np.pad(img2_offset, ((0, 0), (0, -offset_x)), mode='constant')[:, -offset_x:]
 
 def find_filled_bubbles_alt2(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit):
-	# experiment
 	full_paper_threshold = isodata_threshold(warped_u8.flatten()) + 10
 	thresholded = cv2.threshold(warped_u8, full_paper_threshold, 255, cv2.THRESH_BINARY)
-
-	# idea: taking the mean loses a bunch of useful information about the distribution
 
 
 
@@ -195,34 +174,15 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 			neighbourhood = warped_u8[y-med_h//2:y+med_h//2+1, x-med_w//2:x+med_w//2+1]
 			neighbourhood_flattened = neighbourhood.flatten()
 			neighbourhood_flattened_sorted = sorted(neighbourhood_flattened)
-			#neighbourhood_flattened_sorted = neighbourhood_flattened_sorted[len(neighbourhood_flattened_sorted)//3:len(neighbourhood_flattened_sorted)//4*3]
 			neighbourhood_flattened_sorted = neighbourhood_flattened_sorted[len(neighbourhood_flattened_sorted)//2:len(neighbourhood_flattened_sorted)//4*3]
 
 			if sample_neighbourhood is None:
 				sample_neighbourhood = np.array(neighbourhood_flattened, dtype=np.float32)
 				sample_neighbourhood_sorted = np.array(neighbourhood_flattened_sorted, dtype=np.float32)
 
-			# plot the histogram of the neighbourhood
-			# plt.figure(figsize=(8, 6))
-			# plt.hist(neighbourhood_flattened, bins=255, range=(0, 255), alpha=0.5, label="Original")
-			# plt.hist(neighbourhood_flattened_sorted, bins=255, range=(0, 255), alpha=0.5, label="Sorted")
-			# plt.title(f"Histogram of Neighbourhood for Bubble at Row {r}, Col {c}")
-			# plt.xlabel("Pixel Intensity")
-			# plt.ylabel("Frequency")
-			# plt.legend()
-			# plt.show()
-
 			neighbourhood_intensity = np.mean(neighbourhood_flattened_sorted)
 
 			neighbourhood_means[r,c] = neighbourhood_intensity
-
-	# neighbourhood_means_hist = np.histogram(neighbourhood_means.flatten(), bins=255, range=(0, 255))
-	# plt.figure(figsize=(8, 6))
-	# plt.bar(neighbourhood_means_hist[1][:-1], neighbourhood_means_hist[0], width=1)
-	# plt.title("Histogram of Neighbourhood Means for Detected Bubbles")
-	# plt.xlabel("Neighbourhood Mean Intensity")
-	# plt.ylabel("Frequency")
-	# plt.show()
 
 	# idea: if the mean is very low, we are sure its filled.
 	# but if its close to the threshold, we are not sure so we will segment to find only the lightest pixels and take the mean of those to estimate the background intensity
@@ -270,8 +230,6 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 		nm_u8 = (nm * 255).astype(np.uint8)
 		debug_steps.append(("Fill Detection - Neighborhood Means", cv2.cvtColor(nm_u8, cv2.COLOR_GRAY2BGR)))
 
-	#print(f"Chosen threshold for bubble fill classification: {threshold:.2f}")
-
 	mean_differences = []
 
 	for r in range(rows):
@@ -295,15 +253,6 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 			color=(0, 200, 120),
 		)
 		debug_steps.append(("Fill Detection - Mean Difference Histogram", diff_hist))
-
-	#diff_hist = np.histogram(mean_differences, bins=255, range=(0, 255))
-
-	# plt.figure(figsize=(8, 6))
-	# plt.bar(diff_hist[1][:-1], diff_hist[0], width=1)
-	# plt.title("Histogram of Mean Differences for Detected Bubbles")
-	# plt.xlabel("Difference from Threshold")
-	# plt.ylabel("Frequency")
-	# plt.show()
 
 	
 
