@@ -30,7 +30,7 @@ def compute_score(true_positives, false_positives, false_negatives, true_negativ
 	accuracy = (true_positives) / total
 	return accuracy
 
-def run_on_folder(folder_path):
+def run_on_folder(folder_path, config_name):
 
 	true_positives = 0
 	false_positives = 0
@@ -42,7 +42,7 @@ def run_on_folder(folder_path):
 		if not file_name.endswith(".png"):
 			continue
 
-		true_pos, false_pos, false_neg, true_neg = run_instance(os.path.join(folder_path, file_name))
+		true_pos, false_pos, false_neg, true_neg = run_instance(os.path.join(folder_path, file_name), config_name)
 		true_positives += true_pos
 		false_positives += false_pos
 		false_negatives += false_neg
@@ -54,14 +54,14 @@ def run_on_folder(folder_path):
 
 	print(f"Score: {score}")
 
-def run_on_single_instance(instance_path):
+def run_on_single_instance(instance_path, config_name):
 
 	true_positives = 0
 	false_positives = 0
 	false_negatives = 0
 	true_negatives = 0
 
-	true_pos, false_pos, false_neg, true_neg = run_instance(instance_path)
+	true_pos, false_pos, false_neg, true_neg = run_instance(instance_path, config_name)
 	true_positives += true_pos
 	false_positives += false_pos
 	false_negatives += false_neg
@@ -73,10 +73,10 @@ def run_on_single_instance(instance_path):
 
 	
 
-def run_instance(instance_path):
+def run_instance(instance_path, config_name):
 	print(f"Running on instance: {instance_path}")
 
-	(result, (num_rows, num_cols), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page) = grader.grade_score_form(instance_path, show_plots=False)
+	(result, (num_rows, num_cols), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page) = grader.grade_score_form(instance_path, show_plots=False, config_name=config_name)
 
 	ground_truth = read_ground_truth(instance_path)
 
@@ -125,15 +125,16 @@ def compare_result_with_ground_truth(result, ground_truth, num_rows, num_cols, p
 # Arguement parser to know what to run
 ap = argparse.ArgumentParser()
 ap.add_argument("-d", "--data", required=True, help="what data to run (train/test/specific instance)")
+ap.add_argument("-c", "--config", default="config-db9-13022026", help="config file/module name")
 args = vars(ap.parse_args())
 
 if args["data"] == "train":
-	run_on_folder("./test_forms/train")
+	run_on_folder("./test_forms/train", args["config"])
 elif args["data"] == "test":
-	run_on_folder("./test_forms/test")
+	run_on_folder("./test_forms/test", args["config"])
 elif args["data"] == "bigset":
-	run_on_folder("./test_forms/big_set")
+	run_on_folder("./test_forms/big_set", args["config"])
 else:
-	run_on_single_instance(args["data"])
+	run_on_single_instance(args["data"], args["config"])
 
 	

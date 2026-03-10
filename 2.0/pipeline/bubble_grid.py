@@ -4,6 +4,7 @@ import numpy as np
 from imutils.perspective import four_point_transform
 from imutils import contours
 import imutils
+from configs import config as app_config
 
 def compute_bubble_grid(questionCnts, thresh2, warped_u8):
 	"""
@@ -15,8 +16,11 @@ def compute_bubble_grid(questionCnts, thresh2, warped_u8):
 	:param warped_u8: Warped grayscale image normalized to uint8 (0..255)
 	"""
 
-	ROWS = 20
-	COLS = 27  # 3 groups * 9 columns
+	cfg = app_config.get_active_config()
+	rows = cfg.ROWS
+	cols = cfg.COLS
+
+	# 3 groups * 9 columns
 
 	# --- 1) Compute centroids + basic size estimate
 	bubbles = []
@@ -53,7 +57,7 @@ def compute_bubble_grid(questionCnts, thresh2, warped_u8):
 
 	# Row centers
 	_, row_labels, row_centers = cv2.kmeans(
-		ys, ROWS, None, crit, 10, cv2.KMEANS_PP_CENTERS
+		ys, rows, None, crit, 10, cv2.KMEANS_PP_CENTERS
 	)
 	row_centers = row_centers.flatten()
 	row_order = np.argsort(row_centers)
@@ -64,7 +68,7 @@ def compute_bubble_grid(questionCnts, thresh2, warped_u8):
 
 	# Col centers
 	_, col_labels, col_centers = cv2.kmeans(
-		xs, COLS, None, crit, 10, cv2.KMEANS_PP_CENTERS
+		xs, cols, None, crit, 10, cv2.KMEANS_PP_CENTERS
 	)
 	col_centers = col_centers.flatten()
 	col_order = np.argsort(col_centers)
@@ -90,6 +94,12 @@ def detect_bubbles(warped):
 			- thresh2: Binary image used for contour detection (white=ink/pencil)
 			- warped_u8: Warped grayscale image normalized to uint8 (0..255)
 	"""
+
+	cfg = app_config.get_active_config()
+	circularity_min = cfg.circularity
+	extent_min = cfg.extent
+	hull_min = cfg.hull
+	debug_mode = cfg.debug_mode
 
 	# 1) Threshold (make sure warped is 8-bit single channel)
 	if warped.dtype != np.uint8:
@@ -171,14 +181,14 @@ def detect_bubbles(warped):
 			continue
 
 		# 1) Circularity: 1.0 is a perfect circle
-		circularity = 4.0 * np.pi * area / (peri * peri)
+		circularity_score = 4.0 * np.pi * area / (peri * peri)
 
 		# 2) Extent: area / bounding-box-area (letters tend to be lower)
-		extent = area / float(cw * ch)
+		extent_score = area / float(cw * ch)
 
 		# 3) Solidity: area / convex-hull-area (Z/T can be less "solid")
-		hull = cv2.convexHull(c)
-		hull_area = cv2.contourArea(hull)
+		hull_contour = cv2.convexHull(c)
+		hull_area = cv2.contourArea(hull_contour)
 		if hull_area == 0:
 			continue
 		solidity = area / float(hull_area)
@@ -186,14 +196,18 @@ def detect_bubbles(warped):
 
 		# ---- Tune these thresholds ----
 		# Good starting points for "0"-like blobs:
-		if circularity < 0.55:
+		if circularity_score < circularity_min:
 			continue
-		if extent < 0.30:
+		if extent_score < extent_min:
 			continue
-		if solidity < 0.80:
+		if solidity < hull_min:
 			continue
 
 		questionCnts.append(c)
+
+	if debug_mode:
+		print(f"Detected bubble-like contours: {len(questionCnts)}")
+
 	return questionCnts, thresh2, warped_u8
 
 
