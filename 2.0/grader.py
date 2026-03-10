@@ -10,6 +10,22 @@ import pipeline.preprocess_paper as preprocess_paper
 import pipeline.bubble_grid as bubble_grid
 import pipeline.find_filled_bubbles as find_filled_bubbles
 
+
+class GradingDebugError(RuntimeError):
+	def __init__(self, message, debug_steps=None):
+		super().__init__(message)
+		self.debug_steps = debug_steps if debug_steps is not None else []
+
+
+def _append_debug_step(debug_steps, title, image):
+	if debug_steps is None or image is None:
+		return
+
+	img = image.copy()
+	if len(img.shape) == 2:
+		img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+	debug_steps.append((title, img))
+
 def plot_paper(paper, title):
 	plt.figure(figsize=(8, 10))
 	plt.imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
@@ -53,35 +69,69 @@ def get_amounts_and_tries(cell_data):
 
 	
 
-def grade_score_form(image_path, show_plots=False, config_name="config-db9-13022026"):
+def grade_score_form(image_path, show_plots=False, config_name="config-db9-13022026", debug_mode=False, return_debug_steps=False):
 	app_config.set_active_config(config_name)
+	debug_steps = [] if debug_mode else None
 
 	# Load the image and convert it to grayscale
 	image = cv2.imread(image_path)
 	if image is None:
 		raise FileNotFoundError(f"Could not read image: {image_path}")
 	gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+	_append_debug_step(debug_steps, "01 - Original Input", image)
+	_append_debug_step(debug_steps, "02 - Input Grayscale", gray)
 	if not hasattr(cv2, "aruco"):
 		raise ImportError("cv2.aruco not found. Install opencv-contrib-python.")
 
-	paper, warped = preprocess_paper.preprocess(image, gray)
+	try:
+		paper, warped = preprocess_paper.preprocess(image, gray, debug_steps=debug_steps)
+		_append_debug_step(debug_steps, "03 - Preprocess Output (Paper)", paper)
+		_append_debug_step(debug_steps, "04 - Preprocess Output (Warped)", warped)
 
-	if show_plots:
-		# Show the result of the question area contour detection
-		plt.figure(figsize=(8, 10))
-		plt.imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
-		plt.title(f"Detected Question Box outline")
-		plt.axis("off")
-		plt.show()
+		if show_plots:
+			# Show the result of the question area contour detection
+			plt.figure(figsize=(8, 10))
+			plt.imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
+			plt.title(f"Detected Question Box outline")
+			plt.axis("off")
+			plt.show()
 
+		questionCnts, thresh2, warped_u8 = bubble_grid.detect_bubbles(warped, debug_steps=debug_steps)
+		_append_debug_step(debug_steps, "05 - Bubble Threshold", thresh2)
+		_append_debug_step(debug_steps, "06 - Warped U8", warped_u8)
 
-	questionCnts, thresh2, warped_u8 = bubble_grid.detect_bubbles(warped)
+		bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, crit = bubble_grid.compute_bubble_grid(questionCnts, thresh2, warped_u8, debug_steps=debug_steps)
 
-	bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, crit = bubble_grid.compute_bubble_grid(questionCnts, thresh2, warped_u8)
+		if show_plots:
+			bubble_grid.plot_bubble_grid(paper, bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, warped_u8)
 
-	if show_plots:
-		bubble_grid.plot_bubble_grid(paper, bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, warped_u8)
+		filled_cells, (ROWS, COLS) = find_filled_bubbles.find_filled_bubbles_alt(
+			bubbles,
+			row_centers_sorted,
+			col_centers_sorted,
+			thresh2,
+			warped_u8,
+			med_w,
+			med_h,
+			crit,
+			debug_steps=debug_steps,
+		)
 
-	filled_cells, (ROWS, COLS) = find_filled_bubbles.find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit)
+		if debug_mode:
+			final_overlay = warped.copy()
+			if len(final_overlay.shape) == 2:
+				final_overlay = cv2.cvtColor(final_overlay, cv2.COLOR_GRAY2BGR)
+			for (r, c) in filled_cells:
+				x = int(col_centers_sorted[c])
+				y = int(row_centers_sorted[r])
+				cv2.circle(final_overlay, (x, y), max(2, int(med_w * 0.8)), (0, 0, 255), 2)
+			_append_debug_step(debug_steps, "99 - Final Filled Bubbles Overlay", final_overlay)
+	except Exception as e:
+		if debug_mode:
+			raise GradingDebugError(str(e), debug_steps=debug_steps) from e
+		raise
 
-	return filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), image
+	result = (filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), image)
+	if return_debug_steps:
+		return (*result, debug_steps)
+	return result

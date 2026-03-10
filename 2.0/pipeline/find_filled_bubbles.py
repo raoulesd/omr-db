@@ -4,6 +4,85 @@ import numpy as np
 import scipy
 from configs import config as app_config
 
+
+def _render_histogram_image(values, bins=64, value_range=(0, 255), title="Histogram", size=(900, 500), color=(255, 120, 0)):
+	"""Render a simple histogram into a BGR image for debug-step visualization."""
+	w, h = size
+	img = np.full((h, w, 3), 255, dtype=np.uint8)
+
+	counts, edges = np.histogram(values, bins=bins, range=value_range)
+	max_c = float(np.max(counts)) if np.max(counts) > 0 else 1.0
+
+	left = 60
+	right = w - 30
+	top = 40
+	bottom = h - 60
+	plot_w = right - left
+	plot_h = bottom - top
+
+	# Axes
+	cv2.rectangle(img, (left, top), (right, bottom), (220, 220, 220), 1)
+
+	bar_w = max(1, int(plot_w / len(counts)))
+	for i, c in enumerate(counts):
+		x1 = left + i * bar_w
+		x2 = min(right, x1 + bar_w - 1)
+		bar_h = int((c / max_c) * plot_h)
+		y1 = bottom - bar_h
+		cv2.rectangle(img, (x1, y1), (x2, bottom), color, -1)
+
+	cv2.putText(img, title, (left, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (20, 20, 20), 2)
+	return img
+
+
+def _render_hist_with_curve_image(counts, curve, marks=None, title="Histogram + Curve", size=(900, 500)):
+	"""Render histogram bars and an overlay curve into a BGR image."""
+	w, h = size
+	img = np.full((h, w, 3), 255, dtype=np.uint8)
+
+	counts = np.asarray(counts, dtype=np.float32)
+	curve = np.asarray(curve, dtype=np.float32)
+	n = len(counts)
+	if n == 0:
+		return img
+
+	left = 60
+	right = w - 30
+	top = 40
+	bottom = h - 60
+	plot_w = right - left
+	plot_h = bottom - top
+
+	cv2.rectangle(img, (left, top), (right, bottom), (220, 220, 220), 1)
+
+	max_c = float(np.max(counts)) if np.max(counts) > 0 else 1.0
+	bar_w = max(1, int(plot_w / n))
+	for i, c in enumerate(counts):
+		x1 = left + i * bar_w
+		x2 = min(right, x1 + bar_w - 1)
+		bar_h = int((c / max_c) * plot_h)
+		y1 = bottom - bar_h
+		cv2.rectangle(img, (x1, y1), (x2, bottom), (200, 200, 200), -1)
+
+	cur_min = float(np.min(curve))
+	cur_max = float(np.max(curve))
+	den = cur_max - cur_min if cur_max > cur_min else 1.0
+	pts = []
+	for i, y in enumerate(curve):
+		x = left + int((i / max(1, n - 1)) * plot_w)
+		yp = bottom - int(((float(y) - cur_min) / den) * plot_h)
+		pts.append((x, yp))
+	if len(pts) >= 2:
+		cv2.polylines(img, [np.array(pts, dtype=np.int32)], False, (255, 0, 0), 2)
+
+	if marks:
+		for idx, color in marks:
+			x = left + int((idx / max(1, n - 1)) * plot_w)
+			cv2.line(img, (x, top), (x, bottom), color, 2)
+
+	cv2.putText(img, title, (left, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (20, 20, 20), 2)
+	return img
+
 def plot_paper(paper, title):
 	plt.figure(figsize=(8, 10))
 	plt.imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
@@ -34,7 +113,7 @@ def isodata_threshold(values):
 
 	return threshold
 
-def savgol_threshold(values, window_length=13, polyorder=3, multiplier=1.0):
+def savgol_threshold(values, window_length=13, polyorder=3, multiplier=1.0, debug_steps=None):
 
 	isodata_t = int(np.round(isodata_threshold(values)))
 
@@ -48,6 +127,18 @@ def savgol_threshold(values, window_length=13, polyorder=3, multiplier=1.0):
 	#y = np.convolve(counts, np.ones(width)/width, mode='same')  # simple moving average for comparison
 	y = smooth_counts
 	threshold = np.argmin(y[isodata_t:isodata_t+15]) + isodata_t
+
+	if debug_steps is not None:
+		graph = _render_hist_with_curve_image(
+			counts,
+			y,
+			marks=[
+				(isodata_t, (0, 180, 0)),
+				(threshold, (0, 140, 255)),
+			],
+			title="Threshold Selection - Histogram + Smoothed Curve",
+		)
+		debug_steps.append(("Fill Detection - Savgol Threshold Graph", graph))
 
 	#print(f"Isodata threshold: {isodata_t:.2f} | Savgol threshold: {threshold:.2f}")
 
@@ -87,12 +178,14 @@ def find_filled_bubbles_alt2(bubbles, row_centers_sorted, col_centers_sorted, th
 
 
 
-def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit):
+def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit, debug_steps=None):
 	cfg = app_config.get_active_config()
 	rows = cfg.ROWS
 	cols = cfg.COLS
 
 	neighbourhood_means = np.zeros(shape=(rows, cols))
+	sample_neighbourhood = None
+	sample_neighbourhood_sorted = None
 
 	for r in range(rows):
 		for c in range(cols):
@@ -104,6 +197,10 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 			neighbourhood_flattened_sorted = sorted(neighbourhood_flattened)
 			#neighbourhood_flattened_sorted = neighbourhood_flattened_sorted[len(neighbourhood_flattened_sorted)//3:len(neighbourhood_flattened_sorted)//4*3]
 			neighbourhood_flattened_sorted = neighbourhood_flattened_sorted[len(neighbourhood_flattened_sorted)//2:len(neighbourhood_flattened_sorted)//4*3]
+
+			if sample_neighbourhood is None:
+				sample_neighbourhood = np.array(neighbourhood_flattened, dtype=np.float32)
+				sample_neighbourhood_sorted = np.array(neighbourhood_flattened_sorted, dtype=np.float32)
 
 			# plot the histogram of the neighbourhood
 			# plt.figure(figsize=(8, 6))
@@ -133,7 +230,45 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 	bubbles_status_grid = np.zeros(shape=(rows, cols), dtype=np.uint8)
 
 	threshold = isodata_threshold(neighbourhood_means.flatten())
-	threshold = savgol_threshold(neighbourhood_means.flatten())
+	threshold = savgol_threshold(neighbourhood_means.flatten(), debug_steps=debug_steps)
+
+	if debug_steps is not None and sample_neighbourhood is not None:
+		# 2) Histogram of one sample neighbourhood (original vs sorted-selection)
+		h1 = _render_histogram_image(
+			sample_neighbourhood,
+			bins=64,
+			value_range=(0, 255),
+			title="Neighbourhood Histogram - Original",
+			color=(180, 180, 180),
+		)
+		h2 = _render_histogram_image(
+			sample_neighbourhood_sorted,
+			bins=64,
+			value_range=(0, 255),
+			title="Neighbourhood Histogram - Sorted Subset",
+			color=(255, 120, 0),
+		)
+		debug_steps.append(("Fill Detection - Neighbourhood Histogram (Original)", h1))
+		debug_steps.append(("Fill Detection - Neighbourhood Histogram (Sorted Subset)", h2))
+
+		# 3) Histogram of neighbourhood means
+		nm_hist = _render_histogram_image(
+			neighbourhood_means.flatten(),
+			bins=64,
+			value_range=(0, 255),
+			title="Histogram of Neighbourhood Means",
+			color=(0, 160, 255),
+		)
+		debug_steps.append(("Fill Detection - Neighbourhood Means Histogram", nm_hist))
+
+	if debug_steps is not None:
+		nm = neighbourhood_means.copy()
+		nm = nm - np.min(nm)
+		den = np.max(nm)
+		if den > 0:
+			nm = nm / den
+		nm_u8 = (nm * 255).astype(np.uint8)
+		debug_steps.append(("Fill Detection - Neighborhood Means", cv2.cvtColor(nm_u8, cv2.COLOR_GRAY2BGR)))
 
 	#print(f"Chosen threshold for bubble fill classification: {threshold:.2f}")
 
@@ -148,7 +283,18 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 			if difference_to_threshold > 0:
 				bubbles_status_grid[r, c] = 1
 			
-			#mean_differences.append(np.abs(neighbourhood_mean - threshold))
+			mean_differences.append(np.abs(neighbourhood_mean - threshold))
+
+	if debug_steps is not None and len(mean_differences) > 0:
+		# 1) Histogram of mean differences to threshold
+		diff_hist = _render_histogram_image(
+			mean_differences,
+			bins=64,
+			value_range=(0, 255),
+			title="Histogram of Mean Differences to Threshold",
+			color=(0, 200, 120),
+		)
+		debug_steps.append(("Fill Detection - Mean Difference Histogram", diff_hist))
 
 	#diff_hist = np.histogram(mean_differences, bins=255, range=(0, 255))
 
@@ -198,6 +344,10 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 		for c in range(cols):
 			if bubbles_status_grid[r, c] == 1:
 				filled_bubbles.append((r, c))
+
+	if debug_steps is not None:
+		mask = (bubbles_status_grid * 255).astype(np.uint8)
+		debug_steps.append(("Fill Detection - Final Filled Grid", cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)))
 				
 
 
