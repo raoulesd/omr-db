@@ -1,4 +1,5 @@
 import os
+import textwrap
 from pathlib import Path
 import dearpygui.dearpygui as dpg
 import cv2 as cv
@@ -105,6 +106,91 @@ if __name__ == '__main__':
 			dpg.set_value("name_texture", np.zeros((name_data_height * name_data_width * 3,), dtype=np.float32))
 		if dpg.does_item_exist("attempts_total_texture"):
 			dpg.set_value("attempts_total_texture", np.zeros((attempt_totals_height * zones_and_tops_width * 3,), dtype=np.float32))
+
+	def _render_message_image(width, height, title, subtitle=None, bg_color=(0, 0, 0), title_color=(255, 255, 255), subtitle_color=(200, 200, 200)):
+		img = np.zeros((height, width, 3), dtype=np.uint8)
+		img[:] = bg_color
+
+		title_scale = max(0.8, min(width, height) / 900.0)
+		title_th = 2
+		(title_w, title_h), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, title_scale, title_th)
+		title_x = max(10, (width - title_w) // 2)
+		title_y = max(title_h + 20, height // 2 - 20)
+		cv2.putText(img, title, (title_x, title_y), cv2.FONT_HERSHEY_SIMPLEX, title_scale, title_color, title_th)
+
+		if subtitle:
+			wrapped = textwrap.wrap(subtitle, width=60)
+			sub_scale = max(0.5, title_scale * 0.65)
+			sub_th = 1
+			line_gap = int(28 * sub_scale)
+			start_y = title_y + 30
+			for i, line in enumerate(wrapped[:5]):
+				(line_w, line_h), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, sub_scale, sub_th)
+				line_x = max(10, (width - line_w) // 2)
+				line_y = start_y + i * line_gap
+				cv2.putText(img, line, (line_x, line_y), cv2.FONT_HERSHEY_SIMPLEX, sub_scale, subtitle_color, sub_th)
+
+		return img
+
+	def _set_texture_if_exists(tag, image_bgr, width, height):
+		if dpg.does_item_exist(tag):
+			dpg.set_value(tag, to_rgb_texture(image_bgr, width, height))
+
+	def show_loading_state(file_path=None):
+		name = Path(file_path).name if file_path else ""
+		main_msg = _render_message_image(
+			frame_width,
+			frame_height,
+			"Loading...",
+			subtitle=name,
+			bg_color=(25, 25, 25),
+		)
+		side_msg = _render_message_image(
+			zones_and_tops_width,
+			frame_height,
+			"Loading...",
+			bg_color=(25, 25, 25),
+		)
+		name_msg = _render_message_image(
+			name_data_width,
+			name_data_height,
+			"Loading...",
+			bg_color=(25, 25, 25),
+		)
+		attempt_msg = _render_message_image(
+			zones_and_tops_width,
+			attempt_totals_height,
+			"Loading...",
+			bg_color=(25, 25, 25),
+		)
+
+		_set_texture_if_exists("texture_tag", main_msg, frame_width, frame_height)
+		_set_texture_if_exists("zones_and_tops_texture", side_msg, zones_and_tops_width, frame_height)
+		_set_texture_if_exists("name_texture", name_msg, name_data_width, name_data_height)
+		_set_texture_if_exists("attempts_total_texture", attempt_msg, zones_and_tops_width, attempt_totals_height)
+
+		set_export_buttons_enabled(False)
+
+	def show_error_state(error_message):
+		error_main = _render_message_image(
+			frame_width,
+			frame_height,
+			"Processing Error",
+			subtitle=str(error_message),
+			bg_color=(35, 35, 60),
+			title_color=(220, 220, 255),
+			subtitle_color=(220, 220, 220),
+		)
+		black_side = np.zeros((frame_height, zones_and_tops_width, 3), dtype=np.uint8)
+		black_name = np.zeros((name_data_height, name_data_width, 3), dtype=np.uint8)
+		black_attempt = np.zeros((attempt_totals_height, zones_and_tops_width, 3), dtype=np.uint8)
+
+		_set_texture_if_exists("texture_tag", error_main, frame_width, frame_height)
+		_set_texture_if_exists("zones_and_tops_texture", black_side, zones_and_tops_width, frame_height)
+		_set_texture_if_exists("name_texture", black_name, name_data_width, name_data_height)
+		_set_texture_if_exists("attempts_total_texture", black_attempt, zones_and_tops_width, attempt_totals_height)
+
+		set_export_buttons_enabled(False)
 
 	def update_queue_ui():
 		global queue_display_map
@@ -221,10 +307,12 @@ if __name__ == '__main__':
 			return False
 
 		filename = candidate
+		show_loading_state(candidate)
 		try:
 			filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False, config_name=CONFIG_FILE_NAME)
 		except Exception as e:
 			set_status(f"Error reading {Path(filename).name}: {e}")
+			show_error_state(f"{Path(filename).name}: {e}")
 			last_failed_file = candidate
 			filename = None
 			update_queue_ui()
@@ -638,8 +726,6 @@ if __name__ == '__main__':
 		refresh_file_queue()
 		get_next_file(False)
 
-	get_next_file(True)
-
 	with dpg.texture_registry(show=False):
 		dpg.add_raw_texture(frame_width, frame_height, texture_data, tag="texture_tag",
 							format=dpg.mvFormat_Float_rgb)
@@ -690,8 +776,11 @@ if __name__ == '__main__':
 					dpg.add_text("Ready", tag="scan_status_text", wrap=240)
 					dpg.add_listbox([], tag="queue_list", num_items=10, width=240, callback=on_queue_file_selected)
 
+	show_loading_state("Starting up...")
 	refresh_file_queue()
 	update_queue_ui()
+	if filename is None and last_failed_file is None:
+		get_next_file(True)
 
 
 	dpg.bind_item_handler_registry("main_image", "image_handler")
