@@ -4,7 +4,7 @@ import numpy as np
 from imutils.perspective import four_point_transform
 from imutils import contours
 import imutils
-import config as app_config
+from configs import config as app_config
 
 def plot_paper(paper, title):
 	plt.figure(figsize=(8, 10))

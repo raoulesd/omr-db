@@ -2,7 +2,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy
-import config as app_config
+from configs import config as app_config
 
 def plot_paper(paper, title):
 	plt.figure(figsize=(8, 10))

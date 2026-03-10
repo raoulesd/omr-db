@@ -13,7 +13,7 @@ import numpy as np
 COLUMNS = 9
 ROWS = 20
 ANSWERS = 3
-CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config")
+CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-db9-13022026")
 
 if __name__ == '__main__':
 	# TODO give error when folder empty

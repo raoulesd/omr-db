@@ -125,7 +125,7 @@ def compare_result_with_ground_truth(result, ground_truth, num_rows, num_cols, p
 # Arguement parser to know what to run
 ap = argparse.ArgumentParser()
 ap.add_argument("-d", "--data", required=True, help="what data to run (train/test/specific instance)")
-ap.add_argument("-c", "--config", default="config", help="config file/module name")
+ap.add_argument("-c", "--config", default="config-db9-13022026", help="config file/module name")
 args = vars(ap.parse_args())
 
 if args["data"] == "train":

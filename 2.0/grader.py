@@ -4,7 +4,7 @@ import numpy as np
 from imutils.perspective import four_point_transform
 from imutils import contours
 import imutils
-import config as app_config
+from configs import config as app_config
 
 import pipeline.preprocess_paper as preprocess_paper
 import pipeline.bubble_grid as bubble_grid
@@ -53,7 +53,7 @@ def get_amounts_and_tries(cell_data):
 
 	
 
-def grade_score_form(image_path, show_plots=False, config_name="config"):
+def grade_score_form(image_path, show_plots=False, config_name="config-db9-13022026"):
 	app_config.set_active_config(config_name)
 
 	# Load the image and convert it to grayscale
