@@ -14,12 +14,7 @@ CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-db9-13022026")
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 if __name__ == '__main__':
-	# TODO give error when folder empty
 
-	# TODO concurrency feature: should copy from a 'scanned' folder to 'to scan' folder. So multiple instances of this program can process at the same time on the same 'scanned' directory (csv concats are ez)
-	# TODO crop main_frame in such a way that boulder numbers and attempt numbers are visible
-	# TODO add OCR support for name, and support for entering birth year (only needed during DBIYO when names and birth year are printed)
-	# TODO either add config for all custom areas of a specific form format, or make these areas dynamically detectable
 	cfg = app_config.set_active_config(CONFIG_FILE_NAME)
 
 	processed_data_folder = Path(cfg.PROCESSED_FILES_DIR)
