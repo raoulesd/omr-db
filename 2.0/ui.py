@@ -11,13 +11,11 @@ COLUMNS = 9
 ROWS = 20
 ANSWERS = 3
 CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-db9-13022026")
+SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 if __name__ == '__main__':
 	# TODO give error when folder empty
 
-	# TODO add variable/paths to a config
-	# TODO add support for these paths on Linux machines
-	# TODO make sure paths work for network drives too
 	# TODO concurrency feature: should copy from a 'scanned' folder to 'to scan' folder. So multiple instances of this program can process at the same time on the same 'scanned' directory (csv concats are ez)
 	# TODO crop main_frame in such a way that boulder numbers and attempt numbers are visible
 	# TODO add OCR support for name, and support for entering birth year (only needed during DBIYO when names and birth year are printed)
@@ -49,8 +47,25 @@ if __name__ == '__main__':
 			print(f"Made dir: {p}")
 
 	path = to_process_data_folder
-	fileList = [str(p) for p in path.iterdir() if p.is_file()]
-	#print(fileList)
+	fileList = []
+	filename = None
+	queue_display_map = {}
+
+	# Safe defaults so UI can boot even when queue is empty.
+	frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
+	full_page = frame.copy()
+	cell_data = np.zeros((cfg.ROWS, cfg.COLS), dtype=np.uint8)
+	row_centers_sorted = np.array([])
+	col_centers_sorted = np.array([])
+	med_w = 1
+	med_h = 1
+	amountZT = [0, 0]
+	triesZT = [0, 0]
+	per_boulder_ZT = []
+	texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
+	zones_and_tops_texture_data = np.zeros((frame_height * zones_and_tops_width * 3,), dtype=np.float32)
+	name_texture_data = np.zeros((name_data_height * name_data_width * 3,), dtype=np.float32)
+	attempts_total_data = np.zeros((attempt_totals_height * zones_and_tops_width * 3,), dtype=np.float32)
 
 	csvFile = open(results_csv_path, "a")
 
@@ -58,16 +73,146 @@ if __name__ == '__main__':
 	dpg.create_viewport(title='Review scores', width=1400, height=1000)
 	dpg.setup_dearpygui()
 
-	def get_next_file(is_initialization):
-		global filename, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page
+	def set_status(message):
+		if dpg.does_item_exist("scan_status_text"):
+			dpg.set_value("scan_status_text", message)
+		print(message)
 
-		if len(fileList) == 0:
-			print("No more files to process.")
+	def set_export_buttons_enabled(enabled):
+		if dpg.does_item_exist("export_button"):
+			dpg.configure_item("export_button", enabled=enabled)
+		if dpg.does_item_exist("export_ground_truth_button"):
+			dpg.configure_item("export_ground_truth_button", enabled=enabled)
+
+	def clear_display_textures():
+		global frame, full_page, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h
+
+		frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
+		full_page = frame.copy()
+		cell_data = np.zeros((cfg.ROWS, cfg.COLS), dtype=np.uint8)
+		row_centers_sorted = np.array([])
+		col_centers_sorted = np.array([])
+		med_w = 1
+		med_h = 1
+
+		if dpg.does_item_exist("texture_tag"):
+			dpg.set_value("texture_tag", np.zeros((frame_height * frame_width * 3,), dtype=np.float32))
+		if dpg.does_item_exist("zones_and_tops_texture"):
+			dpg.set_value("zones_and_tops_texture", np.zeros((frame_height * zones_and_tops_width * 3,), dtype=np.float32))
+		if dpg.does_item_exist("name_texture"):
+			dpg.set_value("name_texture", np.zeros((name_data_height * name_data_width * 3,), dtype=np.float32))
+		if dpg.does_item_exist("attempts_total_texture"):
+			dpg.set_value("attempts_total_texture", np.zeros((attempt_totals_height * zones_and_tops_width * 3,), dtype=np.float32))
+
+	def update_queue_ui():
+		global queue_display_map
+		if not dpg.does_item_exist("queue_list"):
 			return
 
-		filename = fileList.pop()
-		
-		filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False, config_name=CONFIG_FILE_NAME)
+		queue_display_map = {}
+		queue_items = []
+		for idx, p in enumerate(reversed(fileList), start=1):
+			is_current = (filename is not None and p == filename)
+			prefix = "* " if is_current else "  "
+			label = f"{prefix}{idx:03d} | {Path(p).name}"
+			queue_display_map[label] = p
+			queue_items.append(label)
+
+		if not queue_items:
+			queue_items = ["<queue empty>"]
+
+		dpg.configure_item("queue_list", items=queue_items)
+		dpg.set_value("queue_count_text", f"Queue: {len(fileList)} file(s)")
+		current_label = Path(filename).name if filename else "-"
+		dpg.set_value("current_file_text", f"Current: {current_label}")
+
+		# If nothing is queued/active, present a blank UI and disable exports.
+		if len(fileList) == 0 and filename is None:
+			clear_display_textures()
+			set_export_buttons_enabled(False)
+		else:
+			set_export_buttons_enabled(filename is not None)
+
+	def refresh_file_queue(sender=None, app_data=None):
+		global to_process_data_folder
+		global filename
+		had_empty_state = (len(fileList) == 0 and filename is None)
+
+		if not to_process_data_folder.exists():
+			set_status(f"Scan directory does not exist: {to_process_data_folder}")
+			update_queue_ui()
+			return
+
+		disk_files = []
+		for p in sorted(to_process_data_folder.iterdir()):
+			if not p.is_file():
+				continue
+			if p.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
+				continue
+			disk_files.append(str(p))
+
+		disk_set = set(disk_files)
+		old_set = set(fileList)
+
+		removed_files = [p for p in fileList if p not in disk_set]
+		added_files = [p for p in disk_files if p not in old_set]
+
+		# Keep existing queue order for files still present, then append new files.
+		fileList[:] = [p for p in fileList if p in disk_set]
+		fileList.extend(added_files)
+
+		current_removed = False
+		if filename is not None and filename not in disk_set:
+			set_status(f"Current file was removed: {Path(filename).name}")
+			filename = None
+			current_removed = True
+
+		update_queue_ui()
+		if added_files or removed_files:
+			set_status(
+				f"Rescanned: +{len(added_files)} / -{len(removed_files)} file(s)"
+			)
+		else:
+			set_status("Rescanned: no new files found")
+
+		# If current item disappeared, immediately switch to top-of-stack file.
+		if current_removed:
+			if len(fileList) > 0:
+				load_file(fileList[-1])
+			else:
+				set_status("Current file removed and queue is now empty.")
+
+		# If we were empty and new files appeared, auto-load the top-of-stack file.
+		if had_empty_state and len(fileList) > 0 and filename is None:
+			load_file(fileList[-1])
+
+	def apply_scan_directory_and_refresh(sender, app_data):
+		global to_process_data_folder
+		new_dir = Path(dpg.get_value("scan_dir_input")).expanduser()
+		to_process_data_folder = new_dir
+		if not to_process_data_folder.exists():
+			to_process_data_folder.mkdir(parents=True, exist_ok=True)
+		set_status(f"Using scan directory: {to_process_data_folder}")
+		refresh_file_queue()
+
+	def load_file(candidate):
+		global filename, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page
+
+		if not Path(candidate).exists():
+			set_status(f"File no longer exists: {Path(candidate).name}")
+			if candidate in fileList:
+				fileList.remove(candidate)
+			update_queue_ui()
+			return False
+
+		filename = candidate
+		try:
+			filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False, config_name=CONFIG_FILE_NAME)
+		except Exception as e:
+			set_status(f"Error reading {Path(filename).name}: {e}")
+			filename = None
+			update_queue_ui()
+			return False
 
 		cell_data = np.zeros((ROWS, COLS), dtype=np.uint8)
 		for (r, c) in filled_cells:
@@ -78,6 +223,38 @@ if __name__ == '__main__':
 		frame = warped_u8
 
 		draw_data()
+		update_queue_ui()
+		set_export_buttons_enabled(True)
+		set_status(f"Loaded: {Path(filename).name}")
+		return True
+
+	def on_queue_file_selected(sender, app_data):
+		selected_label = dpg.get_value("queue_list")
+		if not selected_label or selected_label == "<queue empty>":
+			return
+
+		selected_path = queue_display_map.get(selected_label)
+		if not selected_path:
+			set_status("Selected file could not be resolved. Refresh queue.")
+			return
+
+		load_file(selected_path)
+
+	def get_next_file(is_initialization):
+		global filename
+
+		if len(fileList) == 0:
+			refresh_file_queue()
+
+		if len(fileList) == 0:
+			set_status("No files in queue. Add scans and press Refresh Queue.")
+			filename = None
+			update_queue_ui()
+			set_export_buttons_enabled(False)
+			return
+
+		# Stack behavior: use the newest queued file (end of list), but keep it in queue until export.
+		load_file(fileList[-1])
 
 	def draw_data():
 		global cell_data, full_page, amountZT, triesZT, per_boulder_ZT, frame
@@ -295,6 +472,10 @@ if __name__ == '__main__':
 
 	def export_to_csv(sender, callback):
 		global amountZT, triesZT, filename, per_boulder_ZT
+		if filename is None:
+			set_status("No active file to export.")
+			return
+
 		name = dpg.get_value("user_name")
 		sex = "M" if dpg.get_value("is_male") else "V"
 		exportString = f"{name},"
@@ -317,12 +498,20 @@ if __name__ == '__main__':
 		# Move the png file
 		moved_file_name = processed_data_folder / only_file_name
 		Path(filename).rename(moved_file_name)
+		if filename in fileList:
+			fileList.remove(filename)
+		filename = None
 
 		dpg.set_value("user_name", "")
+		refresh_file_queue()
 		get_next_file(False)
 
 	def export_to_ground_truth(sender, callback):
 		global cell_data, filename
+		if filename is None:
+			set_status("No active file to export.")
+			return
+
 		filled_cells = []
 		for row in range(cell_data.shape[0]):
 			for col in range(cell_data.shape[1]):
@@ -342,7 +531,11 @@ if __name__ == '__main__':
 
 		# Move the png file
 		Path(filename).rename(moved_file_name)
+		if filename in fileList:
+			fileList.remove(filename)
+		filename = None
 
+		refresh_file_queue()
 		get_next_file(False)
 
 	get_next_file(True)
@@ -382,13 +575,26 @@ if __name__ == '__main__':
 					dpg.add_input_text(tag=f"user_name")
 					dpg.add_text(f"Is kandidaat man?")
 					dpg.add_checkbox(tag=f"is_male", default_value = True)
-					dpg.add_button(label="export", callback=export_to_csv)
-					dpg.add_button(label="export to ground truth", callback=export_to_ground_truth)
+					dpg.add_button(label="export", tag="export_button", callback=export_to_csv)
+					dpg.add_button(label="export to ground truth", tag="export_ground_truth_button", callback=export_to_ground_truth)
+				with dpg.table_cell():
+					dpg.add_text("Scan directory")
+					dpg.add_input_text(tag="scan_dir_input", default_value=str(to_process_data_folder), width=240)
+					dpg.add_button(label="Apply + Refresh", callback=apply_scan_directory_and_refresh)
+					dpg.add_button(label="Refresh Queue", callback=refresh_file_queue)
+					dpg.add_text("Queue: 0 file(s)", tag="queue_count_text")
+					dpg.add_text("Current: -", tag="current_file_text")
+					dpg.add_text("Ready", tag="scan_status_text", wrap=240)
+					dpg.add_listbox([], tag="queue_list", num_items=10, width=240, callback=on_queue_file_selected)
+
+	refresh_file_queue()
+	update_queue_ui()
 
 
 	dpg.bind_item_handler_registry("main_image", "image_handler")
 
 	dpg.show_viewport()
+	dpg.maximize_viewport()
 	dpg.set_primary_window("mainWindow", True)
 	dpg.start_dearpygui()
 	dpg.destroy_context()
