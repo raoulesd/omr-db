@@ -8,6 +8,7 @@ import grader
 # Arguement parser to get the image path from command line
 ap = argparse.ArgumentParser()
 ap.add_argument("-i", "--image", required=True, help="path to the input image")
+ap.add_argument("-c", "--config", default="config", help="config file/module name")
 args = vars(ap.parse_args())
 
-grader.grade_score_form(args["image"])
+grader.grade_score_form(args["image"], config_name=args["config"])

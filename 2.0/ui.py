@@ -13,6 +13,7 @@ import numpy as np
 COLUMNS = 9
 ROWS = 20
 ANSWERS = 3
+CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config")
 
 if __name__ == '__main__':
 	# TODO give error when folder empty
@@ -66,7 +67,7 @@ if __name__ == '__main__':
 
 		filename = fileList.pop()
 		
-		filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False)
+		filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False, config_name=CONFIG_FILE_NAME)
 
 		cell_data = np.zeros((ROWS, COLS), dtype=np.uint8)
 		for (r, c) in filled_cells:

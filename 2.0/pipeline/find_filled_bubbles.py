@@ -2,6 +2,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy
+import config as app_config
 
 def plot_paper(paper, title):
 	plt.figure(figsize=(8, 10))
@@ -18,8 +19,7 @@ def plot_paper_gray(paper, title):
 	plt.show()
 
 def isodata_threshold(values):
-	epsilon = 0.001
-
+	cfg = app_config.get_active_config()
 	threshold = np.mean(values)
 
 	while True:
@@ -28,7 +28,7 @@ def isodata_threshold(values):
 		mean_right = np.mean(values[values>threshold])
 
 		new_threshold = (mean_left + mean_right) / 2
-		if np.abs(threshold - new_threshold) < epsilon:
+		if np.abs(threshold - new_threshold) < cfg.epsilon:
 			break
 		threshold = new_threshold
 
@@ -79,9 +79,6 @@ def diff_with_offset(img1, img2, offset_x, offset_y):
 		img2_offset = np.pad(img2_offset, ((0, 0), (0, -offset_x)), mode='constant')[:, -offset_x:]
 
 def find_filled_bubbles_alt2(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit):
-	ROWS = 20
-	COLS = 27
-
 	# experiment
 	full_paper_threshold = isodata_threshold(warped_u8.flatten()) + 10
 	thresholded = cv2.threshold(warped_u8, full_paper_threshold, 255, cv2.THRESH_BINARY)
@@ -91,13 +88,14 @@ def find_filled_bubbles_alt2(bubbles, row_centers_sorted, col_centers_sorted, th
 
 
 def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit):
-	ROWS = 20
-	COLS = 27
+	cfg = app_config.get_active_config()
+	rows = cfg.ROWS
+	cols = cfg.COLS
 
-	neighbourhood_means = np.zeros(shape=(ROWS, COLS))
+	neighbourhood_means = np.zeros(shape=(rows, cols))
 
-	for r in range(ROWS):
-		for c in range(COLS):
+	for r in range(rows):
+		for c in range(cols):
 			x = int(col_centers_sorted[c])
 			y = int(row_centers_sorted[r])
 
@@ -132,7 +130,7 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 	# idea: if the mean is very low, we are sure its filled.
 	# but if its close to the threshold, we are not sure so we will segment to find only the lightest pixels and take the mean of those to estimate the background intensity
 
-	bubbles_status_grid = np.zeros(shape=(ROWS, COLS), dtype=np.uint8)
+	bubbles_status_grid = np.zeros(shape=(rows, cols), dtype=np.uint8)
 
 	threshold = isodata_threshold(neighbourhood_means.flatten())
 	threshold = savgol_threshold(neighbourhood_means.flatten())
@@ -141,8 +139,8 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 
 	mean_differences = []
 
-	for r in range(ROWS):
-		for c in range(COLS):
+	for r in range(rows):
+		for c in range(cols):
 			neighbourhood_mean = neighbourhood_means[r,c]
 
 			difference_to_threshold = threshold - neighbourhood_mean
@@ -166,8 +164,8 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 	
 	# Rectification pass:
 	
-	for r in range(ROWS):
-		for c in range(0, COLS, 3):
+	for r in range(rows):
+		for c in range(0, cols, 3):
 			neighbourhood_mean = neighbourhood_means[r,c]
 
 			attempt = bubbles_status_grid[r, c] == 1
@@ -196,16 +194,17 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 	# Taking the bubble status grid and turning it into a list of indices
 	filled_bubbles = []
 
-	for r in range(ROWS):
-		for c in range(COLS):
+	for r in range(rows):
+		for c in range(cols):
 			if bubbles_status_grid[r, c] == 1:
 				filled_bubbles.append((r, c))
 				
 
 
-	return filled_bubbles, (ROWS, COLS)
+	return filled_bubbles, (rows, cols)
 
 def find_filled_bubbles(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit):
+	cfg = app_config.get_active_config()
 	
 	def compute_fill_scores(bubbles, thresh2, warped_u8, med_w, med_h, crit):
 		"""
@@ -304,9 +303,6 @@ def find_filled_bubbles(bubbles, row_centers_sorted, col_centers_sorted, thresh2
 		fill_threshold = float(np.mean(sc_centers))  # simple midpoint between cluster centers
 
 
-		ROWS = 20
-		COLS = 27
-
 		overlay = paper.copy()
 
 		# Bubble size estimate (use what you already computed)
@@ -320,7 +316,9 @@ def find_filled_bubbles(bubbles, row_centers_sorted, col_centers_sorted, thresh2
 		def clamp(v, lo, hi):
 			return max(lo, min(hi, v))
 
-		fill_scores = np.zeros((ROWS, COLS), dtype=np.float32)
+		rows = cfg.ROWS
+		cols = cfg.COLS
+		fill_scores = np.zeros((rows, cols), dtype=np.float32)
 
 		# Precompute a circular mask for the ROI (square -> circle)
 		roi_size = 2 * r_out + 1
@@ -331,9 +329,9 @@ def find_filled_bubbles(bubbles, row_centers_sorted, col_centers_sorted, thresh2
 		hole = (xx*xx + yy*yy) <= (r_in*r_in)
 		disk_only = disk & (~hole)
 
-		for r in range(ROWS):
+		for r in range(rows):
 			cy = int(round(row_centers_sorted[r]))
-			for c in range(COLS):
+			for c in range(cols):
 				cx = int(round(col_centers_sorted[c]))
 
 				x1 = clamp(cx - r_out, 0, w - 1)
@@ -409,10 +407,10 @@ def find_filled_bubbles(bubbles, row_centers_sorted, col_centers_sorted, thresh2
 		COLS = fill_scores.shape[1]
 
 		# Choose one:
-		FILL_METHOD = "kmeans"   # "percentile" or "kmeans" or "otsu"
-		fill_threshold = choose_fill_threshold(all_scores, method=FILL_METHOD)
+		fill_threshold = choose_fill_threshold(all_scores, method=cfg.FILL_METHOD)
 
-		print(f"Fill threshold method: {FILL_METHOD} | threshold={fill_threshold:.3f}")
+		if cfg.debug_mode:
+			print(f"Fill threshold method: {cfg.FILL_METHOD} | threshold={fill_threshold:.3f}")
 
 
 
@@ -431,8 +429,10 @@ def find_filled_bubbles(bubbles, row_centers_sorted, col_centers_sorted, thresh2
 					# optional: show unfilled in light green
 					cv2.circle(overlay, (cx, cy), rad, (0, 255, 0), 1)
 
-		print(f"Threshold: {fill_threshold:.3f}")
-		print(f"Filled count: {len(filled_cells)} / {ROWS*COLS}")
+		if cfg.debug_mode:
+			print(f"Threshold: {fill_threshold:.3f}")
+			print(f"Filled count: {len(filled_cells)} / {ROWS*COLS}")
 		return filled_cells, (ROWS, COLS)
 
 	filled_cells, (ROWS, COLS) = classify_bubble_fill(fill_scores, row_centers_sorted, col_centers_sorted, overlay, rad)
+	return filled_cells, (ROWS, COLS)

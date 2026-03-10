@@ -4,6 +4,7 @@ import numpy as np
 from imutils.perspective import four_point_transform
 from imutils import contours
 import imutils
+import config as app_config
 
 def plot_paper(paper, title):
 	plt.figure(figsize=(8, 10))
@@ -13,17 +14,7 @@ def plot_paper(paper, title):
 	plt.show()
 
 def preprocess(image, gray):
-	# Fixed marker IDs by sheet corner
-	ID_TL = 4
-	ID_TR = 3
-	ID_BR = 2
-	ID_BL = 1
-
-	# Dictionary used to generate the markers
-	ARUCO_DICT = cv2.aruco.getPredefinedDictionary(
-		cv2.aruco.DICT_6X6_1000
-	)
-
+	cfg = app_config.get_active_config()
 
 	def marker_outer_corner(marker_corners_4x2: np.ndarray, which: str) -> np.ndarray:
 		"""
@@ -63,13 +54,13 @@ def preprocess(image, gray):
 		try:
 			# Newer OpenCV API
 			params = cv2.aruco.DetectorParameters()
-			detector = cv2.aruco.ArucoDetector(ARUCO_DICT, params)
+			detector = cv2.aruco.ArucoDetector(cfg.ARUDO_DICT, params)
 			corners_list, ids, _ = detector.detectMarkers(gray)
 		except AttributeError:
 			# Older OpenCV API fallback
 			params = cv2.aruco.DetectorParameters_create()
 			corners_list, ids, _ = cv2.aruco.detectMarkers(
-				gray, ARUCO_DICT, parameters=params
+				gray, cfg.ARUDO_DICT, parameters=params
 			)
 
 		if ids is None:
@@ -87,7 +78,7 @@ def preprocess(image, gray):
 		}
 
 		# Ensure all required markers are present
-		required_ids = [ID_TL, ID_TR, ID_BR, ID_BL]
+		required_ids = [cfg.ID_TL, cfg.ID_TR, cfg.ID_BR, cfg.ID_BL]
 		missing = [mid for mid in required_ids if mid not in id_to_corners]
 		if missing:
 			raise RuntimeError(
@@ -95,13 +86,18 @@ def preprocess(image, gray):
 				f"Detected IDs: {sorted(ids)}"
 			)
 
-		pt_tl = marker_outer_corner(id_to_corners[ID_TL], "tl")
-		pt_tr = marker_outer_corner(id_to_corners[ID_TR], "tr")
-		pt_br = marker_outer_corner(id_to_corners[ID_BR], "br")
-		pt_bl = marker_outer_corner(id_to_corners[ID_BL], "bl")
+		pt_tl = marker_outer_corner(id_to_corners[cfg.ID_TL], "tl")
+		pt_tr = marker_outer_corner(id_to_corners[cfg.ID_TR], "tr")
+		pt_br = marker_outer_corner(id_to_corners[cfg.ID_BR], "br")
+		pt_bl = marker_outer_corner(id_to_corners[cfg.ID_BL], "bl")
 
 		docCnt = np.array(
-			[pt_tl, pt_tr, pt_br, pt_bl],
+			[
+				pt_tl + cfg.offset_tl,
+				pt_tr + cfg.offset_tr,
+				pt_br + cfg.offset_br,
+				pt_bl + cfg.offset_bl,
+			],
 			dtype=np.float32
 		)
 
@@ -230,6 +226,7 @@ def preprocess(image, gray):
 		print(f"Error in aruco_transform: {e}")
 		warped = gray
 
-	paper, warped = question_area_transform(warped)
+	if cfg.has_bounded_question_area:
+		paper, warped = question_area_transform(warped)
 
 	return paper, warped
