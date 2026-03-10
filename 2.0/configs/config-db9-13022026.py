@@ -1,5 +1,32 @@
 import cv2
 import numpy as np
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+
+# Path to the directory holding scanned files.
+SCANNED_FILES_DIR = BASE_DIR / "process_data" / "to_process"
+
+# Processing output locations.
+PROCESSED_FILES_DIR = BASE_DIR / "process_data" / "processed"
+ERRORED_FILES_DIR = BASE_DIR / "process_data" / "errored"
+RESULTS_CSV_PATH = BASE_DIR / "results.csv"
+
+# Relative coordinates (x_min, x_max, y_min, y_max) for UI cutouts.
+UI_AREAS = {
+	"name": (0.38, 0.85, 0.05, 0.16),
+	"tickbox": (0.80, 1.00, 0.22, 0.50),
+	"attempts_total": (0.80, 1.00, 0.67, 0.74),
+}
+
+# UI scaling and preview panel sizes.
+UI_SCALE = 1.2
+FRAME_WIDTH = 800
+FRAME_HEIGHT = 455
+ATTEMPT_TOTALS_HEIGHT = 100
+ZONES_AND_TOPS_WIDTH = 180
+NAME_DATA_WIDTH = 600
+NAME_DATA_HEIGHT = 180
 
 # Shared grid dimensions across bubble detection and fill classification.
 ROWS = 20

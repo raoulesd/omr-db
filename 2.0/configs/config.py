@@ -22,6 +22,18 @@ _REQUIRED_KEYS = (
     "offset_br",
     "offset_bl",
     "has_bounded_question_area",
+    "SCANNED_FILES_DIR",
+    "PROCESSED_FILES_DIR",
+    "ERRORED_FILES_DIR",
+    "RESULTS_CSV_PATH",
+    "UI_AREAS",
+    "UI_SCALE",
+    "FRAME_WIDTH",
+    "FRAME_HEIGHT",
+    "ATTEMPT_TOTALS_HEIGHT",
+    "ZONES_AND_TOPS_WIDTH",
+    "NAME_DATA_WIDTH",
+    "NAME_DATA_HEIGHT",
 )
 
 _ACTIVE_CONFIG = None

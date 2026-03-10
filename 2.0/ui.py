@@ -1,14 +1,11 @@
 import os
-import shutil
-from os import listdir
-from os.path import isfile, join
-from genericpath import isfile
+from pathlib import Path
 import dearpygui.dearpygui as dpg
 import cv2 as cv
 import cv2 as cv2
 import numpy as np
 import grader
-import numpy as np
+from configs import config as app_config
 
 COLUMNS = 9
 ROWS = 20
@@ -25,34 +22,37 @@ if __name__ == '__main__':
 	# TODO crop main_frame in such a way that boulder numbers and attempt numbers are visible
 	# TODO add OCR support for name, and support for entering birth year (only needed during DBIYO when names and birth year are printed)
 	# TODO either add config for all custom areas of a specific form format, or make these areas dynamically detectable
-	processed_data_folder = "process_data/processed/"
-	to_process_data_folder = "process_data/to_process/"
-	errored_data_folder = "process_data/errored/"
+	cfg = app_config.set_active_config(CONFIG_FILE_NAME)
 
-	ui_scale = 1.2
-	
-	frame_width = int(800 * ui_scale)
-	frame_height = int(455 * ui_scale)
+	processed_data_folder = Path(cfg.PROCESSED_FILES_DIR)
+	to_process_data_folder = Path(cfg.SCANNED_FILES_DIR)
+	errored_data_folder = Path(cfg.ERRORED_FILES_DIR)
+	results_csv_path = Path(cfg.RESULTS_CSV_PATH)
+	ui_areas = cfg.UI_AREAS
 
-	attempt_totals_height = int(100 * ui_scale)
+	ui_scale = float(cfg.UI_SCALE)
 
-	zones_and_tops_width = int(180 * ui_scale)
+	frame_width = int(cfg.FRAME_WIDTH * ui_scale)
+	frame_height = int(cfg.FRAME_HEIGHT * ui_scale)
 
-	name_data_width = int(600 * ui_scale)
-	name_data_height = int(180 * ui_scale)
+	attempt_totals_height = int(cfg.ATTEMPT_TOTALS_HEIGHT * ui_scale)
+
+	zones_and_tops_width = int(cfg.ZONES_AND_TOPS_WIDTH * ui_scale)
+
+	name_data_width = int(cfg.NAME_DATA_WIDTH * ui_scale)
+	name_data_height = int(cfg.NAME_DATA_HEIGHT * ui_scale)
 
 	paths = [processed_data_folder, to_process_data_folder, errored_data_folder]
 	for p in paths:
-		isExist = os.path.exists(p)
-		if not isExist:
-			os.makedirs(p)
+		if not p.exists():
+			p.mkdir(parents=True, exist_ok=True)
 			print(f"Made dir: {p}")
 
 	path = to_process_data_folder
-	fileList = [join(path, f) for f in os.listdir(path) if isfile(join(path, f))]
+	fileList = [str(p) for p in path.iterdir() if p.is_file()]
 	#print(fileList)
 
-	csvFile = open("results.csv", "a")
+	csvFile = open(results_csv_path, "a")
 
 	dpg.create_context()
 	dpg.create_viewport(title='Review scores', width=1400, height=1000)
@@ -91,31 +91,33 @@ if __name__ == '__main__':
 
 
 	def extract_zones_and_tops_area(frame):
-		y_min = int(0.22 * frame.shape[0])
-		y_max = int(0.5 * frame.shape[0])
-		x_min = int(0.8 * frame.shape[1])
-		# x_max = int(0.915 * frame.shape[1])
-		x_max = int(1 * frame.shape[1])
+		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["tickbox"]
+		y_min = int(y_ratio_min * frame.shape[0])
+		y_max = int(y_ratio_max * frame.shape[0])
+		x_min = int(x_ratio_min * frame.shape[1])
+		x_max = int(x_ratio_max * frame.shape[1])
 
 		cutout = frame[y_min:y_max, x_min:x_max]
 
 		return cv2.resize(cutout, (zones_and_tops_width, frame_height), interpolation=cv2.INTER_LINEAR)
 
 	def extract_attempts_total(frame):
-		y_min = int(0.67 * frame.shape[0])
-		y_max = int(0.74 * frame.shape[0])
-		x_min = int(0.8 * frame.shape[1])
-		x_max = int(1 * frame.shape[1])
+		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["attempts_total"]
+		y_min = int(y_ratio_min * frame.shape[0])
+		y_max = int(y_ratio_max * frame.shape[0])
+		x_min = int(x_ratio_min * frame.shape[1])
+		x_max = int(x_ratio_max * frame.shape[1])
 
 		cutout = frame[y_min:y_max, x_min:x_max]
 		
 		return cv2.resize(cutout, (zones_and_tops_width, attempt_totals_height), interpolation=cv2.INTER_LINEAR)
 
 	def extract_name_area(frame):
-		y_min = int(0.05 * frame.shape[0])
-		y_max = int(0.16 * frame.shape[0])
-		x_min = int(0.38 * frame.shape[1])
-		x_max = int(0.85 * frame.shape[1])
+		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["name"]
+		y_min = int(y_ratio_min * frame.shape[0])
+		y_max = int(y_ratio_max * frame.shape[0])
+		x_min = int(x_ratio_min * frame.shape[1])
+		x_max = int(x_ratio_max * frame.shape[1])
 
 		cutout = frame[y_min:y_max, x_min:x_max]
 
@@ -297,8 +299,8 @@ if __name__ == '__main__':
 		sex = "M" if dpg.get_value("is_male") else "V"
 		exportString = f"{name},"
 		exportString += f"{sex},"
-		file_path = filename
-		only_file_name = file_path.split("/")[-1]
+		file_path = Path(filename)
+		only_file_name = file_path.name
 		exportString += only_file_name
 		for i in range(0, len(per_boulder_ZT)):
 			(zone, top) = per_boulder_ZT[i]
@@ -313,8 +315,8 @@ if __name__ == '__main__':
 		csvFile.flush()
 
 		# Move the png file
-		moved_file_name = processed_data_folder + only_file_name
-		os.rename(filename, moved_file_name)
+		moved_file_name = processed_data_folder / only_file_name
+		Path(filename).rename(moved_file_name)
 
 		dpg.set_value("user_name", "")
 		get_next_file(False)
@@ -327,11 +329,11 @@ if __name__ == '__main__':
 				if cell_data[row, col] == 1:
 					filled_cells.append((row, col))
 
-		pure_file_name = filename.split("\\")[1]
+		pure_file_name = Path(filename).name
 
-		moved_file_name = processed_data_folder + pure_file_name
+		moved_file_name = processed_data_folder / pure_file_name
 
-		output_file_name = processed_data_folder + pure_file_name.split(".")[0] + ".csv"
+		output_file_name = processed_data_folder / (Path(pure_file_name).stem + ".csv")
 
 		with open(output_file_name, "w") as f:
 			for cell in filled_cells:
@@ -339,7 +341,7 @@ if __name__ == '__main__':
 
 
 		# Move the png file
-		os.rename(filename, moved_file_name)
+		Path(filename).rename(moved_file_name)
 
 		get_next_file(False)
 
