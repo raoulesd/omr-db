@@ -83,6 +83,77 @@ def _render_hist_with_curve_image(counts, curve, marks=None, title="Histogram + 
 	cv2.putText(img, title, (left, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (20, 20, 20), 2)
 	return img
 
+
+def _render_grid_heatmap_image(grid, title="Grid Heatmap", size=(1000, 700)):
+	"""Render a 2D float grid as a readable heatmap with cell boundaries."""
+	w, h = size
+	img = np.full((h, w, 3), 255, dtype=np.uint8)
+
+	grid = np.asarray(grid, dtype=np.float32)
+	rows, cols = grid.shape
+	left = 60
+	right = w - 30
+	top = 50
+	bottom = h - 40
+	plot_w = right - left
+	plot_h = bottom - top
+
+	norm = grid - float(np.min(grid))
+	den = float(np.max(norm))
+	if den > 0:
+		norm = norm / den
+	norm_u8 = (norm * 255).astype(np.uint8)
+	colored = cv2.applyColorMap(norm_u8, cv2.COLORMAP_VIRIDIS)
+	resized = cv2.resize(colored, (plot_w, plot_h), interpolation=cv2.INTER_NEAREST)
+	img[top:bottom, left:right] = resized
+
+	# Draw grid lines for readability.
+	for r in range(rows + 1):
+		y = top + int((r / max(1, rows)) * plot_h)
+		cv2.line(img, (left, y), (right, y), (255, 255, 255), 1)
+	for c in range(cols + 1):
+		x = left + int((c / max(1, cols)) * plot_w)
+		cv2.line(img, (x, top), (x, bottom), (255, 255, 255), 1)
+
+	cv2.rectangle(img, (left, top), (right, bottom), (220, 220, 220), 1)
+	cv2.putText(img, title, (left, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (20, 20, 20), 2)
+	return img
+
+
+def _render_binary_grid_image(binary_grid, title="Binary Grid", size=(1000, 700)):
+	"""Render a small binary grid as a large, readable cell map."""
+	w, h = size
+	img = np.full((h, w, 3), 255, dtype=np.uint8)
+
+	grid = np.asarray(binary_grid, dtype=np.uint8)
+	rows, cols = grid.shape
+	left = 60
+	right = w - 30
+	top = 50
+	bottom = h - 40
+	plot_w = right - left
+	plot_h = bottom - top
+
+	cell_w = max(1, plot_w // max(1, cols))
+	cell_h = max(1, plot_h // max(1, rows))
+
+	for r in range(rows):
+		for c in range(cols):
+			x1 = left + c * cell_w
+			y1 = top + r * cell_h
+			x2 = min(right, x1 + cell_w)
+			y2 = min(bottom, y1 + cell_h)
+			if grid[r, c] == 1:
+				color = (0, 0, 255)
+			else:
+				color = (230, 245, 230)
+			cv2.rectangle(img, (x1, y1), (x2, y2), color, -1)
+			cv2.rectangle(img, (x1, y1), (x2, y2), (180, 180, 180), 1)
+
+	cv2.rectangle(img, (left, top), (right, bottom), (120, 120, 120), 2)
+	cv2.putText(img, title, (left, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (20, 20, 20), 2)
+	return img
+
 def plot_paper(paper, title):
 	plt.figure(figsize=(8, 10))
 	plt.imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
@@ -211,24 +282,12 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 		debug_steps.append(("Fill Detection - Neighbourhood Histogram (Original)", h1))
 		debug_steps.append(("Fill Detection - Neighbourhood Histogram (Sorted Subset)", h2))
 
-		# 3) Histogram of neighbourhood means
-		nm_hist = _render_histogram_image(
-			neighbourhood_means.flatten(),
-			bins=64,
-			value_range=(0, 255),
-			title="Histogram of Neighbourhood Means",
-			color=(0, 160, 255),
+		# 3) Neighbourhood means as a 2D heatmap is more informative than a flat histogram.
+		nm_hist = _render_grid_heatmap_image(
+			neighbourhood_means,
+			title="Neighbourhood Means Heatmap",
 		)
 		debug_steps.append(("Fill Detection - Neighbourhood Means Histogram", nm_hist))
-
-	if debug_steps is not None:
-		nm = neighbourhood_means.copy()
-		nm = nm - np.min(nm)
-		den = np.max(nm)
-		if den > 0:
-			nm = nm / den
-		nm_u8 = (nm * 255).astype(np.uint8)
-		debug_steps.append(("Fill Detection - Neighborhood Means", cv2.cvtColor(nm_u8, cv2.COLOR_GRAY2BGR)))
 
 	mean_differences = []
 
@@ -295,8 +354,11 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 				filled_bubbles.append((r, c))
 
 	if debug_steps is not None:
-		mask = (bubbles_status_grid * 255).astype(np.uint8)
-		debug_steps.append(("Fill Detection - Final Filled Grid", cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)))
+		grid_img = _render_binary_grid_image(
+			bubbles_status_grid,
+			title="Final Filled Grid (Red=Filled, Green=Empty)",
+		)
+		debug_steps.append(("Fill Detection - Final Filled Grid", grid_img))
 				
 
 
