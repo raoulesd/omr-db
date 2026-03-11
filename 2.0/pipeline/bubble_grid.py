@@ -6,7 +6,7 @@ from imutils import contours
 import imutils
 from configs import config as app_config
 
-def compute_bubble_grid(questionCnts, thresh2, warped_u8):
+def compute_bubble_grid(questionCnts, thresh2, warped_u8, debug_steps=None):
 	"""
 	Computes the grid layout of the detected bubble contours by clustering their centroids into ROWS and COLS using K-means.
 	Also estimates the median bubble size for later use in scoring.
@@ -79,12 +79,20 @@ def compute_bubble_grid(questionCnts, thresh2, warped_u8):
 	for i, b in enumerate(bubbles):
 		b["row"] = row_map[int(row_labels[i][0])]
 		b["col"] = col_map[int(col_labels[i][0])]
+
+	if debug_steps is not None:
+		overlay = cv2.cvtColor(warped_u8.copy(), cv2.COLOR_GRAY2BGR)
+		for y in row_centers_sorted:
+			cv2.line(overlay, (0, int(y)), (overlay.shape[1], int(y)), (0, 255, 0), 1)
+		for x in col_centers_sorted:
+			cv2.line(overlay, (int(x), 0), (int(x), overlay.shape[0]), (255, 0, 0), 1)
+		debug_steps.append(("Bubble Grid - Row/Col Centers", overlay))
 	return bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, crit
 
 
 
 
-def detect_bubbles(warped):
+def detect_bubbles(warped, debug_steps=None):
 	"""
 	Detects bubble contours in the warped grayscale image of the question area.
 	
@@ -118,6 +126,9 @@ def detect_bubbles(warped):
 		31,   # block size (odd): try 21, 31, 51
 		7     # C: try 5..15
 	)
+
+	if debug_steps is not None:
+		debug_steps.append(("Bubble Detection - Adaptive Threshold", cv2.cvtColor(thresh2, cv2.COLOR_GRAY2BGR)))
 
 	thresh2 = cv2.morphologyEx(
 		thresh2, cv2.MORPH_CLOSE,
@@ -207,6 +218,11 @@ def detect_bubbles(warped):
 
 	if debug_mode:
 		print(f"Detected bubble-like contours: {len(questionCnts)}")
+
+	if debug_steps is not None:
+		overlay = cv2.cvtColor(warped_u8.copy(), cv2.COLOR_GRAY2BGR)
+		cv2.drawContours(overlay, questionCnts, -1, (0, 0, 255), 1)
+		debug_steps.append(("Bubble Detection - Filtered Contours", overlay))
 
 	return questionCnts, thresh2, warped_u8
 

@@ -13,8 +13,16 @@ def plot_paper(paper, title):
 	plt.axis("off")
 	plt.show()
 
-def preprocess(image, gray):
+def preprocess(image, gray, debug_steps=None):
 	cfg = app_config.get_active_config()
+
+	def append_debug(title, img):
+		if debug_steps is None or img is None:
+			return
+		d = img.copy()
+		if len(d.shape) == 2:
+			d = cv2.cvtColor(d, cv2.COLOR_GRAY2BGR)
+		debug_steps.append((title, d))
 
 	def marker_outer_corner(marker_corners_4x2: np.ndarray, which: str) -> np.ndarray:
 		"""
@@ -103,6 +111,7 @@ def preprocess(image, gray):
 
 		paper = four_point_transform(image, docCnt)
 		warped = four_point_transform(gray, docCnt)
+		append_debug("Preprocess - ArUco Warped", warped)
 		return paper, warped, corners_list, ids, docCnt
 
 	def ui_draw_aruco_corners(image, corners_list, ids, docCnt):
@@ -152,6 +161,7 @@ def preprocess(image, gray):
 
 
 		thresh = cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+		append_debug("Preprocess - Question Area Threshold", thresh)
 
 		cnts = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL,
 			cv2.CHAIN_APPROX_SIMPLE)
@@ -218,6 +228,7 @@ def preprocess(image, gray):
 		# original image and grayscale image to obtain a top-down view
 		paper = four_point_transform(image, docCnt.reshape(4, 2))
 		warped = four_point_transform(gray,  docCnt.reshape(4, 2))
+		append_debug("Preprocess - Question Area Warped", warped)
 		return paper, warped
 
 	try:

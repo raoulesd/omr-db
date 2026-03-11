@@ -1,4 +1,5 @@
 import os
+import textwrap
 from pathlib import Path
 import dearpygui.dearpygui as dpg
 import cv2 as cv
@@ -44,6 +45,7 @@ if __name__ == '__main__':
 	path = to_process_data_folder
 	fileList = []
 	filename = None
+	last_failed_file = None
 	queue_display_map = {}
 
 	# Safe defaults so UI can boot even when queue is empty.
@@ -61,6 +63,8 @@ if __name__ == '__main__':
 	zones_and_tops_texture_data = np.zeros((frame_height * zones_and_tops_width * 3,), dtype=np.float32)
 	name_texture_data = np.zeros((name_data_height * name_data_width * 3,), dtype=np.float32)
 	attempts_total_data = np.zeros((attempt_totals_height * zones_and_tops_width * 3,), dtype=np.float32)
+	debug_texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
+	debug_steps_cache = []
 
 	csvFile = open(results_csv_path, "a")
 
@@ -78,6 +82,10 @@ if __name__ == '__main__':
 			dpg.configure_item("export_button", enabled=enabled)
 		if dpg.does_item_exist("export_ground_truth_button"):
 			dpg.configure_item("export_ground_truth_button", enabled=enabled)
+
+	def set_debug_button_enabled(enabled):
+		if dpg.does_item_exist("show_debug_button"):
+			dpg.configure_item("show_debug_button", enabled=enabled)
 
 	def clear_display_textures():
 		global frame, full_page, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h
@@ -99,8 +107,94 @@ if __name__ == '__main__':
 		if dpg.does_item_exist("attempts_total_texture"):
 			dpg.set_value("attempts_total_texture", np.zeros((attempt_totals_height * zones_and_tops_width * 3,), dtype=np.float32))
 
+	def _render_message_image(width, height, title, subtitle=None, bg_color=(0, 0, 0), title_color=(255, 255, 255), subtitle_color=(200, 200, 200)):
+		img = np.zeros((height, width, 3), dtype=np.uint8)
+		img[:] = bg_color
+
+		title_scale = max(0.8, min(width, height) / 900.0)
+		title_th = 2
+		(title_w, title_h), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, title_scale, title_th)
+		title_x = max(10, (width - title_w) // 2)
+		title_y = max(title_h + 20, height // 2 - 20)
+		cv2.putText(img, title, (title_x, title_y), cv2.FONT_HERSHEY_SIMPLEX, title_scale, title_color, title_th)
+
+		if subtitle:
+			wrapped = textwrap.wrap(subtitle, width=60)
+			sub_scale = max(0.5, title_scale * 0.65)
+			sub_th = 1
+			line_gap = int(28 * sub_scale)
+			start_y = title_y + 30
+			for i, line in enumerate(wrapped[:5]):
+				(line_w, line_h), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, sub_scale, sub_th)
+				line_x = max(10, (width - line_w) // 2)
+				line_y = start_y + i * line_gap
+				cv2.putText(img, line, (line_x, line_y), cv2.FONT_HERSHEY_SIMPLEX, sub_scale, subtitle_color, sub_th)
+
+		return img
+
+	def _set_texture_if_exists(tag, image_bgr, width, height):
+		if dpg.does_item_exist(tag):
+			dpg.set_value(tag, to_rgb_texture(image_bgr, width, height))
+
+	def show_loading_state(file_path=None):
+		name = Path(file_path).name if file_path else ""
+		main_msg = _render_message_image(
+			frame_width,
+			frame_height,
+			"Loading...",
+			subtitle=name,
+			bg_color=(25, 25, 25),
+		)
+		side_msg = _render_message_image(
+			zones_and_tops_width,
+			frame_height,
+			"Loading...",
+			bg_color=(25, 25, 25),
+		)
+		name_msg = _render_message_image(
+			name_data_width,
+			name_data_height,
+			"Loading...",
+			bg_color=(25, 25, 25),
+		)
+		attempt_msg = _render_message_image(
+			zones_and_tops_width,
+			attempt_totals_height,
+			"Loading...",
+			bg_color=(25, 25, 25),
+		)
+
+		_set_texture_if_exists("texture_tag", main_msg, frame_width, frame_height)
+		_set_texture_if_exists("zones_and_tops_texture", side_msg, zones_and_tops_width, frame_height)
+		_set_texture_if_exists("name_texture", name_msg, name_data_width, name_data_height)
+		_set_texture_if_exists("attempts_total_texture", attempt_msg, zones_and_tops_width, attempt_totals_height)
+
+		set_export_buttons_enabled(False)
+
+	def show_error_state(error_message):
+		error_main = _render_message_image(
+			frame_width,
+			frame_height,
+			"Processing Error",
+			subtitle=str(error_message),
+			bg_color=(35, 35, 60),
+			title_color=(220, 220, 255),
+			subtitle_color=(220, 220, 220),
+		)
+		black_side = np.zeros((frame_height, zones_and_tops_width, 3), dtype=np.uint8)
+		black_name = np.zeros((name_data_height, name_data_width, 3), dtype=np.uint8)
+		black_attempt = np.zeros((attempt_totals_height, zones_and_tops_width, 3), dtype=np.uint8)
+
+		_set_texture_if_exists("texture_tag", error_main, frame_width, frame_height)
+		_set_texture_if_exists("zones_and_tops_texture", black_side, zones_and_tops_width, frame_height)
+		_set_texture_if_exists("name_texture", black_name, name_data_width, name_data_height)
+		_set_texture_if_exists("attempts_total_texture", black_attempt, zones_and_tops_width, attempt_totals_height)
+
+		set_export_buttons_enabled(False)
+
 	def update_queue_ui():
 		global queue_display_map
+		global last_failed_file
 		if not dpg.does_item_exist("queue_list"):
 			return
 
@@ -118,7 +212,12 @@ if __name__ == '__main__':
 
 		dpg.configure_item("queue_list", items=queue_items)
 		dpg.set_value("queue_count_text", f"Queue: {len(fileList)} file(s)")
-		current_label = Path(filename).name if filename else "-"
+		if filename:
+			current_label = Path(filename).name
+		elif last_failed_file:
+			current_label = f"failed: {Path(last_failed_file).name}"
+		else:
+			current_label = "-"
 		dpg.set_value("current_file_text", f"Current: {current_label}")
 
 		# If nothing is queued/active, present a blank UI and disable exports.
@@ -128,9 +227,12 @@ if __name__ == '__main__':
 		else:
 			set_export_buttons_enabled(filename is not None)
 
+		set_debug_button_enabled(filename is not None or last_failed_file is not None)
+
 	def refresh_file_queue(sender=None, app_data=None):
 		global to_process_data_folder
 		global filename
+		global last_failed_file
 		had_empty_state = (len(fileList) == 0 and filename is None)
 
 		if not to_process_data_folder.exists():
@@ -162,13 +264,17 @@ if __name__ == '__main__':
 			filename = None
 			current_removed = True
 
+		if last_failed_file is not None and last_failed_file not in disk_set:
+			last_failed_file = None
+
 		update_queue_ui()
-		if added_files or removed_files:
-			set_status(
-				f"Rescanned: +{len(added_files)} / -{len(removed_files)} file(s)"
-			)
-		else:
-			set_status("Rescanned: no new files found")
+		if not current_removed:
+			if added_files or removed_files:
+				set_status(
+					f"Rescanned: +{len(added_files)} / -{len(removed_files)} file(s)"
+				)
+			else:
+				set_status("Rescanned: no new files found")
 
 		# If current item disappeared, immediately switch to top-of-stack file.
 		if current_removed:
@@ -191,7 +297,7 @@ if __name__ == '__main__':
 		refresh_file_queue()
 
 	def load_file(candidate):
-		global filename, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page
+		global filename, last_failed_file, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page
 
 		if not Path(candidate).exists():
 			set_status(f"File no longer exists: {Path(candidate).name}")
@@ -201,13 +307,18 @@ if __name__ == '__main__':
 			return False
 
 		filename = candidate
+		show_loading_state(candidate)
 		try:
 			filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False, config_name=CONFIG_FILE_NAME)
 		except Exception as e:
 			set_status(f"Error reading {Path(filename).name}: {e}")
+			show_error_state(f"{Path(filename).name}: {e}")
+			last_failed_file = candidate
 			filename = None
 			update_queue_ui()
 			return False
+
+		last_failed_file = None
 
 		cell_data = np.zeros((ROWS, COLS), dtype=np.uint8)
 		for (r, c) in filled_cells:
@@ -234,6 +345,86 @@ if __name__ == '__main__':
 			return
 
 		load_file(selected_path)
+
+	def to_rgb_texture(image_bgr, width, height):
+		img = image_bgr
+		if len(img.shape) == 2:
+			img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+		# Fit image into the texture while preserving aspect ratio (letterbox).
+		h_src, w_src = img.shape[:2]
+		scale = min(width / float(max(1, w_src)), height / float(max(1, h_src)))
+		new_w = max(1, int(round(w_src * scale)))
+		new_h = max(1, int(round(h_src * scale)))
+		resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+		canvas = np.zeros((height, width, 3), dtype=np.uint8)
+		x0 = (width - new_w) // 2
+		y0 = (height - new_h) // 2
+		canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
+
+		rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+		flat = rgb.flatten().astype(np.float32)
+		return np.true_divide(flat, 255.0)
+
+	def show_debug_step(step_index):
+		if not debug_steps_cache:
+			return
+		idx = max(0, min(step_index, len(debug_steps_cache) - 1))
+		title, img = debug_steps_cache[idx]
+		dpg.set_value("debug_step_title", title)
+		dpg.set_value("debug_texture", to_rgb_texture(img, frame_width, frame_height))
+
+	def on_debug_step_selected(sender, app_data):
+		selected_label = dpg.get_value("debug_step_list")
+		if not selected_label:
+			return
+		for idx, (title, _) in enumerate(debug_steps_cache):
+			if selected_label.endswith(title):
+				show_debug_step(idx)
+				return
+
+	def show_debug_screen(sender, app_data):
+		global debug_steps_cache
+		target_file = filename if filename is not None else last_failed_file
+		if target_file is None:
+			set_status("No active file for debug view.")
+			return
+
+		try:
+			_, _, _, _, _, _, debug_steps = grader.grade_score_form(
+				target_file,
+				show_plots=False,
+				config_name=CONFIG_FILE_NAME,
+				debug_mode=True,
+				return_debug_steps=True,
+			)
+		except grader.GradingDebugError as e:
+			debug_steps = e.debug_steps
+			set_status(f"Debug captured from failed run: {e}")
+		except Exception as e:
+			set_status(f"Could not build debug view: {e}")
+			return
+
+		if not debug_steps:
+			set_status("No debug steps captured for this form.")
+			return
+
+		debug_steps_cache = debug_steps
+		step_labels = [f"{i+1:02d} | {title}" for i, (title, _) in enumerate(debug_steps_cache)]
+
+		if not dpg.does_item_exist("debug_window"):
+			with dpg.window(label="Debug Pipeline", tag="debug_window", width=1400, height=900, show=False):
+				dpg.add_text("Debug Pipeline", tag="debug_step_title")
+				with dpg.group(horizontal=True):
+					dpg.add_listbox(step_labels, tag="debug_step_list", num_items=12, width=320, callback=on_debug_step_selected)
+					dpg.add_image("debug_texture", tag="debug_image")
+		else:
+			dpg.configure_item("debug_step_list", items=step_labels)
+
+		dpg.set_value("debug_step_list", step_labels[0])
+		show_debug_step(0)
+		dpg.configure_item("debug_window", label=f"Debug Pipeline - {Path(target_file).name}", show=True)
 
 	def get_next_file(is_initialization):
 		global filename
@@ -466,7 +657,7 @@ if __name__ == '__main__':
 		
 
 	def export_to_csv(sender, callback):
-		global amountZT, triesZT, filename, per_boulder_ZT
+		global amountZT, triesZT, filename, last_failed_file, per_boulder_ZT
 		if filename is None:
 			set_status("No active file to export.")
 			return
@@ -496,13 +687,14 @@ if __name__ == '__main__':
 		if filename in fileList:
 			fileList.remove(filename)
 		filename = None
+		last_failed_file = None
 
 		dpg.set_value("user_name", "")
 		refresh_file_queue()
 		get_next_file(False)
 
 	def export_to_ground_truth(sender, callback):
-		global cell_data, filename
+		global cell_data, filename, last_failed_file
 		if filename is None:
 			set_status("No active file to export.")
 			return
@@ -529,11 +721,10 @@ if __name__ == '__main__':
 		if filename in fileList:
 			fileList.remove(filename)
 		filename = None
+		last_failed_file = None
 
 		refresh_file_queue()
 		get_next_file(False)
-
-	get_next_file(True)
 
 	with dpg.texture_registry(show=False):
 		dpg.add_raw_texture(frame_width, frame_height, texture_data, tag="texture_tag",
@@ -543,6 +734,8 @@ if __name__ == '__main__':
 		dpg.add_raw_texture(name_data_width, name_data_height, name_texture_data, tag="name_texture",
 							format=dpg.mvFormat_Float_rgb)
 		dpg.add_raw_texture(zones_and_tops_width, attempt_totals_height, attempts_total_data, tag="attempts_total_texture",
+							format=dpg.mvFormat_Float_rgb)
+		dpg.add_raw_texture(frame_width, frame_height, debug_texture_data, tag="debug_texture",
 							format=dpg.mvFormat_Float_rgb)
 							
 		
@@ -572,6 +765,7 @@ if __name__ == '__main__':
 					dpg.add_checkbox(tag=f"is_male", default_value = True)
 					dpg.add_button(label="export", tag="export_button", callback=export_to_csv)
 					dpg.add_button(label="export to ground truth", tag="export_ground_truth_button", callback=export_to_ground_truth)
+					dpg.add_button(label="Show Debug Screen", tag="show_debug_button", callback=show_debug_screen)
 				with dpg.table_cell():
 					dpg.add_text("Scan directory")
 					dpg.add_input_text(tag="scan_dir_input", default_value=str(to_process_data_folder), width=240)
@@ -582,8 +776,11 @@ if __name__ == '__main__':
 					dpg.add_text("Ready", tag="scan_status_text", wrap=240)
 					dpg.add_listbox([], tag="queue_list", num_items=10, width=240, callback=on_queue_file_selected)
 
+	show_loading_state("Starting up...")
 	refresh_file_queue()
 	update_queue_ui()
+	if filename is None and last_failed_file is None:
+		get_next_file(True)
 
 
 	dpg.bind_item_handler_registry("main_image", "image_handler")
