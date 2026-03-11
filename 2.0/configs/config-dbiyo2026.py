@@ -14,23 +14,38 @@ RESULTS_CSV_PATH = BASE_DIR / "results.csv"
 
 # Relative coordinates (x_min, x_max, y_min, y_max) for UI cutouts.
 UI_AREAS = {
-	"name": (0.38, 0.85, 0.05, 0.16),
-	"tickbox": (0.80, 1.00, 0.22, 0.50),
-	"attempts_total": (0.80, 1.00, 0.67, 0.74),
+	"name": (0.038, 0.64, 0.00, 0.078),
+	"tickbox": (0.78, 1.00, 0.13, 0.80),
+	"attempts_total": (0.65, 1.00, 0.80, 0.90),
 }
 
-# UI scaling and preview panel sizes.
-UI_SCALE = 1.2
-FRAME_WIDTH = 800
-FRAME_HEIGHT = 455
-ATTEMPT_TOTALS_HEIGHT = 100
-ZONES_AND_TOPS_WIDTH = 180
-NAME_DATA_WIDTH = 600
-NAME_DATA_HEIGHT = 180
+# UI scaling factor - controls the ratio of original image size to displayed size.
+UI_SCALE = 0.25
+
+# Base (unscaled) form dimensions - the reference size before applying UI_SCALE.
+_BASE_FRAME_WIDTH = 2486
+_BASE_FRAME_HEIGHT = 3520
+
+# Apply scale to get actual display dimensions.
+FRAME_WIDTH = int(_BASE_FRAME_WIDTH * UI_SCALE)
+FRAME_HEIGHT = int(_BASE_FRAME_HEIGHT * UI_SCALE)
+
+# Derive panel dimensions from UI_AREAS ratios (automatically computed from config).
+_name_coords = UI_AREAS["name"]
+NAME_DATA_WIDTH = int((_name_coords[1] - _name_coords[0]) * FRAME_WIDTH)
+NAME_DATA_HEIGHT = int((_name_coords[3] - _name_coords[2]) * FRAME_HEIGHT)
+
+_tickbox_coords = UI_AREAS["tickbox"]
+ZONES_AND_TOPS_WIDTH = int((_tickbox_coords[1] - _tickbox_coords[0]) * FRAME_WIDTH)
+ZONES_AND_TOPS_HEIGHT = int((_tickbox_coords[3] - _tickbox_coords[2]) * FRAME_HEIGHT)
+
+_attempts_coords = UI_AREAS["attempts_total"]
+ATTEMPT_TOTALS_WIDTH = int((_attempts_coords[1] - _attempts_coords[0]) * FRAME_WIDTH)
+ATTEMPT_TOTALS_HEIGHT = int((_attempts_coords[3] - _attempts_coords[2]) * FRAME_HEIGHT)
 
 # Shared grid dimensions across bubble detection and fill classification.
-ROWS = 20
-COLS = 27
+ROWS = 30
+COLS = 15
 
 # Bubble contour filtering thresholds.
 circularity = 0.55
@@ -64,5 +79,11 @@ offset_tr = np.array([0, 0], dtype=np.float32)
 offset_br = np.array([0, 0], dtype=np.float32)
 offset_bl = np.array([0, 0], dtype=np.float32)
 
+# Optional relative cutout of the detected page quad (x_min, x_max, y_min, y_max).
+# When set, this is converted to dynamic per-corner offsets at runtime.
+# Example: (0.04, 0.9501, 0.126, 0.805)
+CORNER_CUTOUT = (0.064, 0.82, 0.043, 0.83)
+# CORNER_CUTOUT = (0, 0, 0, 0)
+
 # Whether to crop to the bounded question area after ArUco transform.
-has_bounded_question_area = True
+has_bounded_question_area = False

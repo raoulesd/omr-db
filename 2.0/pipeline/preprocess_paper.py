@@ -47,6 +47,53 @@ def preprocess(image, gray, debug_steps=None):
 
 		raise ValueError("which must be one of: 'tl', 'tr', 'br', 'bl'")
 
+	def point_on_quad(tl, tr, br, bl, u, v):
+		"""
+		Bilinear interpolation inside a convex quad.
+		u is horizontal (0=left, 1=right), v is vertical (0=top, 1=bottom).
+		"""
+		return (
+			(1.0 - u) * (1.0 - v) * tl
+			+ u * (1.0 - v) * tr
+			+ u * v * br
+			+ (1.0 - u) * v * bl
+		).astype(np.float32)
+
+	def offsets_from_corner_cutout(pt_tl, pt_tr, pt_br, pt_bl):
+		"""
+		Convert config CORNER_CUTOUT=(x_min,x_max,y_min,y_max) to per-corner offsets.
+		Returns None when the config entry is missing/invalid.
+		"""
+		cutout = getattr(cfg, "CORNER_CUTOUT", None)
+		if cutout is None:
+			return None
+		if not isinstance(cutout, (tuple, list)) or len(cutout) != 4:
+			return None
+
+		try:
+			x_min, x_max, y_min, y_max = [float(v) for v in cutout]
+		except (TypeError, ValueError):
+			return None
+
+		x_min = max(0.0, min(1.0, x_min))
+		x_max = max(0.0, min(1.0, x_max))
+		y_min = max(0.0, min(1.0, y_min))
+		y_max = max(0.0, min(1.0, y_max))
+		if x_min >= x_max or y_min >= y_max:
+			return None
+
+		new_tl = point_on_quad(pt_tl, pt_tr, pt_br, pt_bl, x_min, y_min)
+		new_tr = point_on_quad(pt_tl, pt_tr, pt_br, pt_bl, x_max, y_min)
+		new_br = point_on_quad(pt_tl, pt_tr, pt_br, pt_bl, x_max, y_max)
+		new_bl = point_on_quad(pt_tl, pt_tr, pt_br, pt_bl, x_min, y_max)
+
+		return (
+			new_tl - pt_tl,
+			new_tr - pt_tr,
+			new_br - pt_br,
+			new_bl - pt_bl,
+		)
+
 	def aruco_transform(gray):
 		"""
 		Detect ArUco markers in the given grayscale image and perform a perspective transform to obtain a top-down view of the paper.
@@ -99,12 +146,21 @@ def preprocess(image, gray, debug_steps=None):
 		pt_br = marker_outer_corner(id_to_corners[cfg.ID_BR], "br")
 		pt_bl = marker_outer_corner(id_to_corners[cfg.ID_BL], "bl")
 
+		dyn_offsets = offsets_from_corner_cutout(pt_tl, pt_tr, pt_br, pt_bl)
+		if dyn_offsets is None:
+			dyn_tl = np.array([0, 0], dtype=np.float32)
+			dyn_tr = np.array([0, 0], dtype=np.float32)
+			dyn_br = np.array([0, 0], dtype=np.float32)
+			dyn_bl = np.array([0, 0], dtype=np.float32)
+		else:
+			dyn_tl, dyn_tr, dyn_br, dyn_bl = dyn_offsets
+
 		docCnt = np.array(
 			[
-				pt_tl + cfg.offset_tl,
-				pt_tr + cfg.offset_tr,
-				pt_br + cfg.offset_br,
-				pt_bl + cfg.offset_bl,
+				pt_tl + cfg.offset_tl + dyn_tl,
+				pt_tr + cfg.offset_tr + dyn_tr,
+				pt_br + cfg.offset_br + dyn_br,
+				pt_bl + cfg.offset_bl + dyn_bl,
 			],
 			dtype=np.float32
 		)

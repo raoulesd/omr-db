@@ -11,7 +11,7 @@ from configs import config as app_config
 COLUMNS = 9
 ROWS = 20
 ANSWERS = 3
-CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-db9-13022026")
+CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-dbiyo2026")
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 if __name__ == '__main__':
@@ -24,17 +24,25 @@ if __name__ == '__main__':
 	results_csv_path = Path(cfg.RESULTS_CSV_PATH)
 	ui_areas = cfg.UI_AREAS
 
-	ui_scale = float(cfg.UI_SCALE)
+	# Config values are already scaled via UI_SCALE and derived from UI_AREAS ratios.
+	frame_width = cfg.FRAME_WIDTH
+	frame_height = cfg.FRAME_HEIGHT
 
-	frame_width = int(cfg.FRAME_WIDTH * ui_scale)
-	frame_height = int(cfg.FRAME_HEIGHT * ui_scale)
+	attempt_totals_height = cfg.ATTEMPT_TOTALS_HEIGHT
+	attempt_totals_width = cfg.ATTEMPT_TOTALS_WIDTH
 
-	attempt_totals_height = int(cfg.ATTEMPT_TOTALS_HEIGHT * ui_scale)
+	zones_and_tops_width = cfg.ZONES_AND_TOPS_WIDTH
+	zones_and_tops_height = cfg.ZONES_AND_TOPS_HEIGHT
+	# Display zones/tops at main-frame height while keeping its original aspect ratio.
+	zones_and_tops_display_height = frame_height
+	zones_and_tops_display_width = max(
+		1,
+		int(round(zones_and_tops_width * (zones_and_tops_display_height / float(max(1, zones_and_tops_height)))))
+	)
+	side_panel_width = max(zones_and_tops_display_width, attempt_totals_width)
 
-	zones_and_tops_width = int(cfg.ZONES_AND_TOPS_WIDTH * ui_scale)
-
-	name_data_width = int(cfg.NAME_DATA_WIDTH * ui_scale)
-	name_data_height = int(cfg.NAME_DATA_HEIGHT * ui_scale)
+	name_data_width = cfg.NAME_DATA_WIDTH
+	name_data_height = cfg.NAME_DATA_HEIGHT
 
 	paths = [processed_data_folder, to_process_data_folder, errored_data_folder]
 	for p in paths:
@@ -60,11 +68,16 @@ if __name__ == '__main__':
 	triesZT = [0, 0]
 	per_boulder_ZT = []
 	texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
-	zones_and_tops_texture_data = np.zeros((frame_height * zones_and_tops_width * 3,), dtype=np.float32)
+	zones_and_tops_texture_data = np.zeros((zones_and_tops_display_height * zones_and_tops_display_width * 3,), dtype=np.float32)
 	name_texture_data = np.zeros((name_data_height * name_data_width * 3,), dtype=np.float32)
-	attempts_total_data = np.zeros((attempt_totals_height * zones_and_tops_width * 3,), dtype=np.float32)
+	attempts_total_data = np.zeros((attempt_totals_height * attempt_totals_width * 3,), dtype=np.float32)
 	debug_texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
 	debug_steps_cache = []
+	debug_zoom = {'x0': 0.0, 'y0': 0.0, 'x1': 1.0, 'y1': 1.0}
+	debug_drag_start_local = None
+	debug_drag_current_local = None
+	debug_is_dragging = False
+	debug_current_step_img = None
 
 	csvFile = open(results_csv_path, "a")
 
@@ -101,11 +114,11 @@ if __name__ == '__main__':
 		if dpg.does_item_exist("texture_tag"):
 			dpg.set_value("texture_tag", np.zeros((frame_height * frame_width * 3,), dtype=np.float32))
 		if dpg.does_item_exist("zones_and_tops_texture"):
-			dpg.set_value("zones_and_tops_texture", np.zeros((frame_height * zones_and_tops_width * 3,), dtype=np.float32))
+			dpg.set_value("zones_and_tops_texture", np.zeros((zones_and_tops_display_height * zones_and_tops_display_width * 3,), dtype=np.float32))
 		if dpg.does_item_exist("name_texture"):
 			dpg.set_value("name_texture", np.zeros((name_data_height * name_data_width * 3,), dtype=np.float32))
 		if dpg.does_item_exist("attempts_total_texture"):
-			dpg.set_value("attempts_total_texture", np.zeros((attempt_totals_height * zones_and_tops_width * 3,), dtype=np.float32))
+			dpg.set_value("attempts_total_texture", np.zeros((attempt_totals_height * attempt_totals_width * 3,), dtype=np.float32))
 
 	def _render_message_image(width, height, title, subtitle=None, bg_color=(0, 0, 0), title_color=(255, 255, 255), subtitle_color=(200, 200, 200)):
 		img = np.zeros((height, width, 3), dtype=np.uint8)
@@ -146,8 +159,8 @@ if __name__ == '__main__':
 			bg_color=(25, 25, 25),
 		)
 		side_msg = _render_message_image(
-			zones_and_tops_width,
-			frame_height,
+			zones_and_tops_display_width,
+			zones_and_tops_display_height,
 			"Loading...",
 			bg_color=(25, 25, 25),
 		)
@@ -158,16 +171,16 @@ if __name__ == '__main__':
 			bg_color=(25, 25, 25),
 		)
 		attempt_msg = _render_message_image(
-			zones_and_tops_width,
+			attempt_totals_width,
 			attempt_totals_height,
 			"Loading...",
 			bg_color=(25, 25, 25),
 		)
 
 		_set_texture_if_exists("texture_tag", main_msg, frame_width, frame_height)
-		_set_texture_if_exists("zones_and_tops_texture", side_msg, zones_and_tops_width, frame_height)
+		_set_texture_if_exists("zones_and_tops_texture", side_msg, zones_and_tops_display_width, zones_and_tops_display_height)
 		_set_texture_if_exists("name_texture", name_msg, name_data_width, name_data_height)
-		_set_texture_if_exists("attempts_total_texture", attempt_msg, zones_and_tops_width, attempt_totals_height)
+		_set_texture_if_exists("attempts_total_texture", attempt_msg, attempt_totals_width, attempt_totals_height)
 
 		set_export_buttons_enabled(False)
 
@@ -181,14 +194,14 @@ if __name__ == '__main__':
 			title_color=(220, 220, 255),
 			subtitle_color=(220, 220, 220),
 		)
-		black_side = np.zeros((frame_height, zones_and_tops_width, 3), dtype=np.uint8)
+		black_side = np.zeros((zones_and_tops_display_height, zones_and_tops_display_width, 3), dtype=np.uint8)
 		black_name = np.zeros((name_data_height, name_data_width, 3), dtype=np.uint8)
-		black_attempt = np.zeros((attempt_totals_height, zones_and_tops_width, 3), dtype=np.uint8)
+		black_attempt = np.zeros((attempt_totals_height, attempt_totals_width, 3), dtype=np.uint8)
 
 		_set_texture_if_exists("texture_tag", error_main, frame_width, frame_height)
-		_set_texture_if_exists("zones_and_tops_texture", black_side, zones_and_tops_width, frame_height)
+		_set_texture_if_exists("zones_and_tops_texture", black_side, zones_and_tops_display_width, zones_and_tops_display_height)
 		_set_texture_if_exists("name_texture", black_name, name_data_width, name_data_height)
-		_set_texture_if_exists("attempts_total_texture", black_attempt, zones_and_tops_width, attempt_totals_height)
+		_set_texture_if_exists("attempts_total_texture", black_attempt, attempt_totals_width, attempt_totals_height)
 
 		set_export_buttons_enabled(False)
 
@@ -368,21 +381,302 @@ if __name__ == '__main__':
 		return np.true_divide(flat, 255.0)
 
 	def show_debug_step(step_index):
+		global debug_current_step_img
 		if not debug_steps_cache:
 			return
 		idx = max(0, min(step_index, len(debug_steps_cache) - 1))
 		title, img = debug_steps_cache[idx]
+		debug_current_step_img = img
 		dpg.set_value("debug_step_title", title)
-		dpg.set_value("debug_texture", to_rgb_texture(img, frame_width, frame_height))
+		render_debug_with_zoom()
 
 	def on_debug_step_selected(sender, app_data):
+		global debug_zoom
 		selected_label = dpg.get_value("debug_step_list")
 		if not selected_label:
 			return
 		for idx, (title, _) in enumerate(debug_steps_cache):
 			if selected_label.endswith(title):
+				debug_zoom = {'x0': 0.0, 'y0': 0.0, 'x1': 1.0, 'y1': 1.0}
 				show_debug_step(idx)
 				return
+
+	def to_debug_texture(img_bgr, overlay_rect=None):
+		"""Render debug image with preserved aspect ratio and optional display-space overlay."""
+		if img_bgr is None:
+			return np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
+
+		img = img_bgr
+		if len(img.shape) == 2:
+			img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+		h_src, w_src = img.shape[:2]
+		scale = min(frame_width / float(max(1, w_src)), frame_height / float(max(1, h_src)))
+		new_w = max(1, int(round(w_src * scale)))
+		new_h = max(1, int(round(h_src * scale)))
+		resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+		canvas = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
+		x0 = (frame_width - new_w) // 2
+		y0 = (frame_height - new_h) // 2
+		canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
+
+		if overlay_rect is not None:
+			sx, sy, ex, ey = overlay_rect
+			sx = int(max(0, min(sx, frame_width - 1)))
+			sy = int(max(0, min(sy, frame_height - 1)))
+			ex = int(max(0, min(ex, frame_width - 1)))
+			ey = int(max(0, min(ey, frame_height - 1)))
+			cv2.rectangle(canvas, (min(sx, ex), min(sy, ey)), (max(sx, ex), max(sy, ey)), (0, 255, 255), 2)
+
+		rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+		return np.true_divide(rgb.flatten().astype(np.float32), 255.0)
+
+	def get_debug_display_rect(img_w, img_h):
+		scale = min(frame_width / float(max(1, img_w)), frame_height / float(max(1, img_h)))
+		display_w = max(1.0, img_w * scale)
+		display_h = max(1.0, img_h * scale)
+		offset_x = (frame_width - display_w) / 2.0
+		offset_y = (frame_height - display_h) / 2.0
+		return offset_x, offset_y, display_w, display_h
+
+	def map_debug_local_to_zoom(local_x, local_y, clamp_to_image=False):
+		if debug_current_step_img is None:
+			return None
+
+		img_h, img_w = debug_current_step_img.shape[:2]
+		x0, y0 = debug_zoom['x0'], debug_zoom['y0']
+		x1, y1 = debug_zoom['x1'], debug_zoom['y1']
+
+		crop_w = max(1, int((x1 - x0) * img_w))
+		crop_h = max(1, int((y1 - y0) * img_h))
+		dx0, dy0, dw, dh = get_debug_display_rect(crop_w, crop_h)
+
+		if clamp_to_image:
+			local_x = max(dx0, min(local_x, dx0 + dw))
+			local_y = max(dy0, min(local_y, dy0 + dh))
+		else:
+			if local_x < dx0 or local_x > (dx0 + dw) or local_y < dy0 or local_y > (dy0 + dh):
+				return None
+
+		u = (local_x - dx0) / max(1e-9, dw)
+		v = (local_y - dy0) / max(1e-9, dh)
+		mapped_x = x0 + u * (x1 - x0)
+		mapped_y = y0 + v * (y1 - y0)
+		return max(0.0, min(mapped_x, 1.0)), max(0.0, min(mapped_y, 1.0))
+
+	def update_debug_coords_text(coords=None, prefix="View"):
+		if not dpg.does_item_exist("debug_coords_input"):
+			return
+
+		if coords is None:
+			x_min, y_min, x_max, y_max = debug_zoom['x0'], debug_zoom['y0'], debug_zoom['x1'], debug_zoom['y1']
+		else:
+			x_min, y_min, x_max, y_max = coords
+
+		x_min, x_max = min(x_min, x_max), max(x_min, x_max)
+		y_min, y_max = min(y_min, y_max), max(y_min, y_max)
+		coord_tuple = f"({x_min:.4f}, {x_max:.4f}, {y_min:.4f}, {y_max:.4f})"
+		dpg.set_value("debug_coords_mode_input", f"{prefix} relative coords (x_min, x_max, y_min, y_max)")
+		dpg.set_value("debug_coords_input", coord_tuple)
+
+	def on_debug_coords_input_change(sender, app_data):
+		global debug_zoom
+		text = app_data.strip()
+		# Try to parse the input as a tuple: (x_min, x_max, y_min, y_max)
+		try:
+			# Remove parentheses and split by comma
+			text = text.strip("()")
+			values = [float(v.strip()) for v in text.split(",")]
+			if len(values) != 4:
+				return
+			x_min, x_max, y_min, y_max = values
+			# Clamp to [0, 1] and ensure min < max
+			x_min = max(0.0, min(x_min, 1.0))
+			x_max = max(0.0, min(x_max, 1.0))
+			y_min = max(0.0, min(y_min, 1.0))
+			y_max = max(0.0, min(y_max, 1.0))
+			if x_min >= x_max or y_min >= y_max:
+				return
+			debug_zoom = {'x0': x_min, 'y0': y_min, 'x1': x_max, 'y1': y_max}
+			render_debug_with_zoom()
+		except (ValueError, IndexError):
+			# Invalid input, silently ignore
+			pass
+
+	def render_debug_with_zoom(draw_drag_rect=False):
+		if debug_current_step_img is None or not dpg.does_item_exist("debug_texture"):
+			return
+
+		img = debug_current_step_img
+		h, w = img.shape[:2]
+
+		x0 = int(debug_zoom['x0'] * w)
+		y0 = int(debug_zoom['y0'] * h)
+		x1 = int(debug_zoom['x1'] * w)
+		y1 = int(debug_zoom['y1'] * h)
+
+		x0 = max(0, min(x0, w - 1))
+		y0 = max(0, min(y0, h - 1))
+		x1 = max(x0 + 1, min(x1, w))
+		y1 = max(y0 + 1, min(y1, h))
+
+		cropped = img[y0:y1, x0:x1].copy()
+
+		overlay_rect = None
+		if draw_drag_rect and debug_drag_start_local and debug_drag_current_local:
+			crop_h, crop_w = cropped.shape[:2]
+			dx0, dy0, dw, dh = get_debug_display_rect(crop_w, crop_h)
+
+			sx = max(dx0, min(debug_drag_start_local[0], dx0 + dw))
+			sy = max(dy0, min(debug_drag_start_local[1], dy0 + dh))
+			ex = max(dx0, min(debug_drag_current_local[0], dx0 + dw))
+			ey = max(dy0, min(debug_drag_current_local[1], dy0 + dh))
+			overlay_rect = (sx, sy, ex, ey)
+
+			p0 = map_debug_local_to_zoom(sx, sy, clamp_to_image=True)
+			p1 = map_debug_local_to_zoom(ex, ey, clamp_to_image=True)
+			if p0 is not None and p1 is not None:
+				update_debug_coords_text((p0[0], p0[1], p1[0], p1[1]), prefix="Selection")
+			else:
+				update_debug_coords_text(prefix="View")
+		else:
+			update_debug_coords_text(prefix="View")
+
+		dpg.set_value("debug_texture", to_debug_texture(cropped, overlay_rect=overlay_rect))
+
+	def reset_debug_zoom():
+		global debug_zoom
+		debug_zoom = {'x0': 0.0, 'y0': 0.0, 'x1': 1.0, 'y1': 1.0}
+		render_debug_with_zoom()
+
+	def on_debug_scroll(sender, app_data):
+		global debug_zoom
+		if not dpg.does_item_exist("debug_image") or not dpg.is_item_hovered("debug_image"):
+			return
+		if debug_current_step_img is None:
+			return
+
+		wheel_delta = app_data
+		scale_factor = 0.8 if wheel_delta > 0 else 1.25
+
+		mouse_x, mouse_y = dpg.get_mouse_pos()
+		img_pos = dpg.get_item_rect_min("debug_image")
+		local_x = mouse_x - img_pos[0]
+		local_y = mouse_y - img_pos[1]
+
+		mapped_point = map_debug_local_to_zoom(local_x, local_y, clamp_to_image=False)
+		if mapped_point is None:
+			return
+		ox, oy = mapped_point
+
+		x0, y0 = debug_zoom['x0'], debug_zoom['y0']
+		x1, y1 = debug_zoom['x1'], debug_zoom['y1']
+
+		new_x0 = max(0.0, ox - (ox - x0) * scale_factor)
+		new_x1 = min(1.0, ox + (x1 - ox) * scale_factor)
+		new_y0 = max(0.0, oy - (oy - y0) * scale_factor)
+		new_y1 = min(1.0, oy + (y1 - oy) * scale_factor)
+
+		if (new_x1 - new_x0) < 0.01 or (new_y1 - new_y0) < 0.01:
+			return
+
+		debug_zoom = {'x0': new_x0, 'y0': new_y0, 'x1': new_x1, 'y1': new_y1}
+		render_debug_with_zoom()
+
+	def on_debug_mouse_down(sender, app_data):
+		global debug_drag_start_local, debug_is_dragging, debug_drag_current_local
+		if debug_is_dragging:
+			return
+		if not dpg.does_item_exist("debug_image") or not dpg.is_item_hovered("debug_image"):
+			return
+		if debug_current_step_img is None:
+			return
+
+		mouse_x, mouse_y = dpg.get_mouse_pos()
+		img_pos = dpg.get_item_rect_min("debug_image")
+		local_x = mouse_x - img_pos[0]
+		local_y = mouse_y - img_pos[1]
+
+		if map_debug_local_to_zoom(local_x, local_y, clamp_to_image=False) is None:
+			return
+
+		debug_drag_start_local = (local_x, local_y)
+		debug_drag_current_local = (local_x, local_y)
+		debug_is_dragging = True
+
+	def on_debug_mouse_move(sender, app_data):
+		global debug_drag_current_local
+		if not debug_is_dragging or debug_drag_start_local is None:
+			return
+		if not dpg.does_item_exist("debug_image"):
+			return
+
+		mouse_x, mouse_y = dpg.get_mouse_pos()
+		img_pos = dpg.get_item_rect_min("debug_image")
+		local_x = mouse_x - img_pos[0]
+		local_y = mouse_y - img_pos[1]
+
+		clamped_point = map_debug_local_to_zoom(local_x, local_y, clamp_to_image=True)
+		if clamped_point is None:
+			return
+
+		img_h, img_w = debug_current_step_img.shape[:2]
+		x0, y0 = debug_zoom['x0'], debug_zoom['y0']
+		x1, y1 = debug_zoom['x1'], debug_zoom['y1']
+		crop_w = max(1, int((x1 - x0) * img_w))
+		crop_h = max(1, int((y1 - y0) * img_h))
+		dx0, dy0, dw, dh = get_debug_display_rect(crop_w, crop_h)
+		mx, my = clamped_point
+		u = (mx - x0) / max(1e-9, (x1 - x0))
+		v = (my - y0) / max(1e-9, (y1 - y0))
+		debug_drag_current_local = (dx0 + u * dw, dy0 + v * dh)
+		render_debug_with_zoom(draw_drag_rect=True)
+
+	def on_debug_mouse_release(sender, app_data):
+		global debug_zoom, debug_drag_start_local, debug_drag_current_local, debug_is_dragging
+		if not debug_is_dragging:
+			return
+		debug_is_dragging = False
+
+		if debug_drag_start_local is None or debug_drag_current_local is None:
+			debug_drag_start_local = None
+			debug_drag_current_local = None
+			return
+
+		sx, sy = debug_drag_start_local
+		ex, ey = debug_drag_current_local
+
+		# Ignore tiny drags (treat as plain click, no zoom)
+		if abs(ex - sx) < 10 or abs(ey - sy) < 10:
+			debug_drag_start_local = None
+			debug_drag_current_local = None
+			render_debug_with_zoom()
+			return
+
+		p0 = map_debug_local_to_zoom(sx, sy, clamp_to_image=True)
+		p1 = map_debug_local_to_zoom(ex, ey, clamp_to_image=True)
+		if p0 is None or p1 is None:
+			debug_drag_start_local = None
+			debug_drag_current_local = None
+			render_debug_with_zoom()
+			return
+
+		drag_x0 = min(p0[0], p1[0])
+		drag_y0 = min(p0[1], p1[1])
+		drag_x1 = max(p0[0], p1[0])
+		drag_y1 = max(p0[1], p1[1])
+
+		if (drag_x1 - drag_x0) < 0.01 or (drag_y1 - drag_y0) < 0.01:
+			debug_drag_start_local = None
+			debug_drag_current_local = None
+			render_debug_with_zoom()
+			return
+
+		debug_zoom = {'x0': drag_x0, 'y0': drag_y0, 'x1': drag_x1, 'y1': drag_y1}
+		debug_drag_start_local = None
+		debug_drag_current_local = None
+		render_debug_with_zoom()
 
 	def show_debug_screen(sender, app_data):
 		global debug_steps_cache
@@ -413,12 +707,23 @@ if __name__ == '__main__':
 		debug_steps_cache = debug_steps
 		step_labels = [f"{i+1:02d} | {title}" for i, (title, _) in enumerate(debug_steps_cache)]
 
+		# Reset zoom for the new debug session
+		debug_zoom['x0'] = 0.0
+		debug_zoom['y0'] = 0.0
+		debug_zoom['x1'] = 1.0
+		debug_zoom['y1'] = 1.0
+
 		if not dpg.does_item_exist("debug_window"):
 			with dpg.window(label="Debug Pipeline", tag="debug_window", width=1400, height=900, show=False):
 				dpg.add_text("Debug Pipeline", tag="debug_step_title")
 				with dpg.group(horizontal=True):
-					dpg.add_listbox(step_labels, tag="debug_step_list", num_items=12, width=320, callback=on_debug_step_selected)
-					dpg.add_image("debug_texture", tag="debug_image")
+					with dpg.group():
+						dpg.add_listbox(step_labels, tag="debug_step_list", num_items=12, width=320, callback=on_debug_step_selected)
+						dpg.add_button(label="Reset Zoom", callback=lambda s, a: reset_debug_zoom())
+					with dpg.group():
+						dpg.add_input_text(default_value="View relative coords (x_min, x_max, y_min, y_max)", tag="debug_coords_mode_input", width=900, readonly=True)
+						dpg.add_input_text(default_value="(0.0000, 1.0000, 0.0000, 1.0000)", tag="debug_coords_input", width=900, callback=on_debug_coords_input_change)
+						dpg.add_image("debug_texture", tag="debug_image")
 		else:
 			dpg.configure_item("debug_step_list", items=step_labels)
 
@@ -462,7 +767,7 @@ if __name__ == '__main__':
 
 		cutout = frame[y_min:y_max, x_min:x_max]
 
-		return cv2.resize(cutout, (zones_and_tops_width, frame_height), interpolation=cv2.INTER_LINEAR)
+		return cv2.resize(cutout, (zones_and_tops_display_width, zones_and_tops_display_height), interpolation=cv2.INTER_LINEAR)
 
 	def extract_attempts_total(frame):
 		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["attempts_total"]
@@ -473,7 +778,7 @@ if __name__ == '__main__':
 
 		cutout = frame[y_min:y_max, x_min:x_max]
 		
-		return cv2.resize(cutout, (zones_and_tops_width, attempt_totals_height), interpolation=cv2.INTER_LINEAR)
+		return cv2.resize(cutout, (attempt_totals_width, attempt_totals_height), interpolation=cv2.INTER_LINEAR)
 
 	def extract_name_area(frame):
 		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["name"]
@@ -492,17 +797,17 @@ if __name__ == '__main__':
 
 		frame = extract_attempts_total(frame)
 
-		zone_x = int(zones_and_tops_width * 0.6)
-		top_x = int(zones_and_tops_width * 0.8)
+		zone_x = int(attempt_totals_width * 0.45)
+		top_x = int(attempt_totals_width * 0.85)
 		y_amount = int(0.4 * frame.shape[0] * 0.99)
 		y_tries = int(0.8 * frame.shape[0] * 0.99)
 
 		if amountZT is not None:
 			cv2.putText(frame, str(amountZT[0]), (zone_x, y_amount), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
-			cv2.putText(frame, str(amountZT[1]), (top_x, y_amount), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+			cv2.putText(frame, str(triesZT[0]), (top_x, y_amount), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
 
 		if triesZT is not None:
-			cv2.putText(frame, str(triesZT[0]), (zone_x, y_tries), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+			cv2.putText(frame, str(amountZT[1]), (zone_x, y_tries), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
 			cv2.putText(frame, str(triesZT[1]), (top_x, y_tries), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
 		
 
@@ -545,14 +850,14 @@ if __name__ == '__main__':
 		# Write the zones and tops amounts on the frame
 		num_boulders = len(per_boulder_ZT)
 		for b in range(num_boulders):
-			zone_x = int(zones_and_tops_width * 0.6)
+			zone_x = int(zones_and_tops_width * 0.7)
 			top_x = int(zones_and_tops_width * 0.8)
 			y = int(((b+1) / num_boulders) * frame.shape[0] * 0.99)
 			(zone, top) = per_boulder_ZT[b]
 			if zone is not None:
-				cv2.putText(frame, str(zone), (zone_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+				cv2.putText(frame, str(zone), (zone_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
 			if top is not None:
-				cv2.putText(frame, str(top), (top_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+				cv2.putText(frame, str(top), (top_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
 		
 		try:
 			#data = cv2.cvtColor(frame, cv2.COLOR_rGR2RGB)  # because the camera data comes in as BGR and we need RGB
@@ -729,11 +1034,11 @@ if __name__ == '__main__':
 	with dpg.texture_registry(show=False):
 		dpg.add_raw_texture(frame_width, frame_height, texture_data, tag="texture_tag",
 							format=dpg.mvFormat_Float_rgb)
-		dpg.add_raw_texture(zones_and_tops_width, frame_height, zones_and_tops_texture_data, tag="zones_and_tops_texture",
+		dpg.add_raw_texture(zones_and_tops_display_width, zones_and_tops_display_height, zones_and_tops_texture_data, tag="zones_and_tops_texture",
 							format=dpg.mvFormat_Float_rgb)
 		dpg.add_raw_texture(name_data_width, name_data_height, name_texture_data, tag="name_texture",
 							format=dpg.mvFormat_Float_rgb)
-		dpg.add_raw_texture(zones_and_tops_width, attempt_totals_height, attempts_total_data, tag="attempts_total_texture",
+		dpg.add_raw_texture(attempt_totals_width, attempt_totals_height, attempts_total_data, tag="attempts_total_texture",
 							format=dpg.mvFormat_Float_rgb)
 		dpg.add_raw_texture(frame_width, frame_height, debug_texture_data, tag="debug_texture",
 							format=dpg.mvFormat_Float_rgb)
@@ -745,18 +1050,24 @@ if __name__ == '__main__':
 
 	with dpg.window(label="resultstester", tag="mainWindow"):
 		with dpg.table(header_row=False):
-			dpg.add_table_column(width_stretch=True)
-			dpg.add_table_column(width_fixed=True, init_width_or_weight=250.0)
+			dpg.add_table_column(width_fixed=True, init_width_or_weight=float(frame_width))
+			dpg.add_table_column(width_fixed=True, init_width_or_weight=float(side_panel_width))
 			with dpg.table_row():
 				with dpg.table_cell():
 					dpg.add_image("texture_tag", tag="main_image")
 				with dpg.table_cell():
-					dpg.add_image("zones_and_tops_texture")
+					with dpg.group(horizontal=True):
+						if side_panel_width > zones_and_tops_display_width:
+							dpg.add_spacer(width=side_panel_width - zones_and_tops_display_width)
+						dpg.add_image("zones_and_tops_texture")
 			with dpg.table_row():
 				with dpg.table_cell():
 					dpg.add_image("name_texture")
 				with dpg.table_cell():
-					dpg.add_image("attempts_total_texture")
+					with dpg.group(horizontal=True):
+						if side_panel_width > attempt_totals_width:
+							dpg.add_spacer(width=side_panel_width - attempt_totals_width)
+						dpg.add_image("attempts_total_texture")
 			with dpg.table_row():
 				with dpg.table_cell():
 					dpg.add_text(f"Naam kandidaat:")
@@ -784,6 +1095,12 @@ if __name__ == '__main__':
 
 
 	dpg.bind_item_handler_registry("main_image", "image_handler")
+
+	with dpg.handler_registry():
+		dpg.add_mouse_wheel_handler(callback=on_debug_scroll)
+		dpg.add_mouse_down_handler(button=0, callback=on_debug_mouse_down)
+		dpg.add_mouse_release_handler(button=0, callback=on_debug_mouse_release)
+		dpg.add_mouse_move_handler(callback=on_debug_mouse_move)
 
 	dpg.show_viewport()
 	dpg.maximize_viewport()
