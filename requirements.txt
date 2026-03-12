@@ -5,3 +5,4 @@ imutils
 scipy
 matplotlib
 dearpygui
+pytesseract

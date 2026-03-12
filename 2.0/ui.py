@@ -1,4 +1,5 @@
 import os
+import shutil
 import textwrap
 from pathlib import Path
 import dearpygui.dearpygui as dpg
@@ -8,15 +9,57 @@ import numpy as np
 import grader
 from configs import config as app_config
 
+try:
+	import pytesseract
+except ImportError:
+	pytesseract = None
+
 COLUMNS = 9
 ROWS = 20
 ANSWERS = 3
 CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-dbiyo2026")
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+TESSERACT_ENV_VAR = "TESSERACT_CMD"
+COMMON_TESSERACT_PATHS = (
+	r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+	r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+)
+
+
+def resolve_tesseract_cmd():
+	explicit_path = os.getenv(TESSERACT_ENV_VAR)
+	if explicit_path:
+		explicit = Path(explicit_path).expanduser()
+		if explicit.exists():
+			return str(explicit)
+
+	detected = shutil.which("tesseract")
+	if detected:
+		return detected
+
+	for candidate in COMMON_TESSERACT_PATHS:
+		if Path(candidate).exists():
+			return candidate
+
+	return None
+
+
+def normalize_ocr_name(text):
+	cleaned_chars = []
+	for char in text.replace("\n", " ").replace("\f", " "):
+		if char.isalpha() or char in " -'":
+			cleaned_chars.append(char)
+		else:
+			cleaned_chars.append(" ")
+
+	return " ".join("".join(cleaned_chars).split()).strip()
 
 if __name__ == '__main__':
 
 	cfg = app_config.set_active_config(CONFIG_FILE_NAME)
+	tesseract_cmd = resolve_tesseract_cmd()
+	if pytesseract is not None and tesseract_cmd is not None:
+		pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
 	processed_data_folder = Path(cfg.PROCESSED_FILES_DIR)
 	to_process_data_folder = Path(cfg.SCANNED_FILES_DIR)
@@ -342,9 +385,15 @@ if __name__ == '__main__':
 		frame = warped_u8
 
 		draw_data()
+		ocr_name, ocr_status = autofill_name_from_frame(full_page)
 		update_queue_ui()
 		set_export_buttons_enabled(True)
-		set_status(f"Loaded: {Path(filename).name}")
+		if ocr_name:
+			set_status(f"Loaded: {Path(filename).name} | OCR: {ocr_name}")
+		elif ocr_status:
+			set_status(f"Loaded: {Path(filename).name} | {ocr_status}")
+		else:
+			set_status(f"Loaded: {Path(filename).name}")
 		return True
 
 	def on_queue_file_selected(sender, app_data):
@@ -791,6 +840,47 @@ if __name__ == '__main__':
 
 		return cv2.resize(cutout, (name_data_width, name_data_height), interpolation=cv2.INTER_LINEAR)
 
+	def preprocess_name_for_ocr(frame):
+		if len(frame.shape) == 3:
+			gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+		else:
+			gray = frame.copy()
+
+		gray = cv2.GaussianBlur(gray, (3, 3), 0)
+		gray = cv2.resize(gray, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
+		_, thresholded = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+		return cv2.copyMakeBorder(thresholded, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
+
+	def read_name_from_image(frame):
+		if pytesseract is None:
+			return "", "name OCR unavailable: install pytesseract"
+		if tesseract_cmd is None:
+			return "", f"name OCR unavailable: set {TESSERACT_ENV_VAR} or install Tesseract"
+
+		processed = preprocess_name_for_ocr(frame)
+		ocr_candidates = []
+		for config in ("--oem 3 --psm 7", "--oem 3 --psm 6"):
+			try:
+				candidate = normalize_ocr_name(pytesseract.image_to_string(processed, config=config))
+			except Exception as e:
+				print(f"Name OCR failed for {filename}: {e}")
+				return "", "name OCR failed"
+			if candidate:
+				ocr_candidates.append(candidate)
+
+		if not ocr_candidates:
+			return "", "name OCR found no text"
+
+		best_match = max(ocr_candidates, key=len)
+		return best_match, None
+
+	def autofill_name_from_frame(frame):
+		name_crop = extract_name_area(frame)
+		ocr_name, ocr_status = read_name_from_image(name_crop)
+		if dpg.does_item_exist("user_name"):
+			dpg.set_value("user_name", ocr_name)
+		return ocr_name, ocr_status
+
 	def draw_attempts_total(frame):
 		global attempts_total_data, amountZT, triesZT
 		frame = frame.copy()
@@ -850,8 +940,8 @@ if __name__ == '__main__':
 		# Write the zones and tops amounts on the frame
 		num_boulders = len(per_boulder_ZT)
 		for b in range(num_boulders):
-			zone_x = int(zones_and_tops_width * 0.7)
-			top_x = int(zones_and_tops_width * 0.8)
+			zone_x = int(zones_and_tops_width * 1.1)
+			top_x = int(zones_and_tops_width * 1.3)
 			y = int(((b+1) / num_boulders) * frame.shape[0] * 0.99)
 			(zone, top) = per_boulder_ZT[b]
 			if zone is not None:

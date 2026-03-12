@@ -14,7 +14,7 @@ RESULTS_CSV_PATH = BASE_DIR / "results.csv"
 
 # Relative coordinates (x_min, x_max, y_min, y_max) for UI cutouts.
 UI_AREAS = {
-	"name": (0.038, 0.64, 0.00, 0.078),
+	"name": (0.12, 0.64, 0.02, 0.078),
 	"tickbox": (0.78, 1.00, 0.13, 0.80),
 	"attempts_total": (0.65, 1.00, 0.80, 0.90),
 }
