@@ -10,6 +10,8 @@ Navigate to the root directory of the repository. Then, install the required dep
 pip install -r requirements.txt
 ```
 
+For automatic name-field OCR in the 2.0 UI, install the Tesseract OCR runtime as well. On Windows, the UI will auto-detect a standard Tesseract install, or you can point it to a custom install with the `TESSERACT_CMD` environment variable.
+
 Example forms saved in `2.0/test_forms/` are omitted due to privacy reasons and are available upon request from the repository owner.
 
 For 2.0, test_grader.py can be used if the directory `2.0/test_forms/` exists with `.png` files. 
@@ -19,3 +21,5 @@ An example command with terminal navigated to the `2.0/` directory:
 ```
 python test_grader.py -i test_forms\a.png
 ```
+
+The UI can be run by executing the command `run` in the root directory (recommended).
