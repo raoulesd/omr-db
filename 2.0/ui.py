@@ -1,3 +1,4 @@
+import difflib
 import os
 import shutil
 import textwrap
@@ -91,6 +92,10 @@ if __name__ == '__main__':
 	name_data_width = cfg.NAME_DATA_WIDTH
 	name_data_height = cfg.NAME_DATA_HEIGHT
 
+	category_data_width = getattr(cfg, "CATEGORY_DATA_WIDTH", 0)
+	category_data_height = getattr(cfg, "CATEGORY_DATA_HEIGHT", 0)
+	has_category_area = "category" in ui_areas and category_data_width > 0 and category_data_height > 0
+
 	paths = [processed_data_folder, to_process_data_folder, errored_data_folder]
 	for p in paths:
 		if not p.exists():
@@ -118,6 +123,7 @@ if __name__ == '__main__':
 	texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
 	zones_and_tops_texture_data = np.zeros((zones_and_tops_display_height * zones_and_tops_display_width * 3,), dtype=np.float32)
 	name_texture_data = np.zeros((name_data_height * name_data_width * 3,), dtype=np.float32)
+	category_texture_data = np.zeros((max(1, category_data_height) * max(1, category_data_width) * 3,), dtype=np.float32)
 	attempts_total_data = np.zeros((attempt_totals_height * attempt_totals_width * 3,), dtype=np.float32)
 	debug_texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
 	debug_steps_cache = []
@@ -150,6 +156,40 @@ if __name__ == '__main__':
 		if dpg.does_item_exist("scan_status_text"):
 			dpg.set_value("scan_status_text", message)
 		print(message)
+
+	def set_ocr_population_status(message):
+		if dpg.does_item_exist("ocr_population_status_text"):
+			dpg.set_value("ocr_population_status_text", message)
+
+	def update_ocr_population_status(name_value, name_status, category_values=None, category_status=None):
+		missing_fields = []
+		if not name_value:
+			missing_fields.append("name")
+
+		if has_category_area:
+			is_male_value = None
+			age_cat_value = None
+			if category_values is not None:
+				is_male_value, age_cat_value = category_values
+			if is_male_value is None:
+				missing_fields.append("gender")
+			if not age_cat_value:
+				missing_fields.append("age")
+
+		if missing_fields:
+			base_message = f"OCR autofill partial (missing: {', '.join(missing_fields)})"
+		else:
+			base_message = "OCR autofill complete"
+
+		notes = []
+		if name_status:
+			notes.append(name_status)
+		if has_category_area and category_status:
+			notes.append(category_status)
+		if notes:
+			base_message = f"{base_message} | {'; '.join(notes)}"
+
+		set_ocr_population_status(base_message)
 
 	def set_export_buttons_enabled(enabled):
 		if dpg.does_item_exist("export_button"):
@@ -211,8 +251,11 @@ if __name__ == '__main__':
 			dpg.set_value("zones_and_tops_texture", np.zeros((zones_and_tops_display_height * zones_and_tops_display_width * 3,), dtype=np.float32))
 		if dpg.does_item_exist("name_texture"):
 			dpg.set_value("name_texture", np.zeros((name_data_height * name_data_width * 3,), dtype=np.float32))
+		if dpg.does_item_exist("category_texture"):
+			dpg.set_value("category_texture", np.zeros((max(1, category_data_height) * max(1, category_data_width) * 3,), dtype=np.float32))
 		if dpg.does_item_exist("attempts_total_texture"):
 			dpg.set_value("attempts_total_texture", np.zeros((attempt_totals_height * attempt_totals_width * 3,), dtype=np.float32))
+		set_ocr_population_status("OCR autofill idle")
 
 	def _render_message_image(width, height, title, subtitle=None, bg_color=(0, 0, 0), title_color=(255, 255, 255), subtitle_color=(200, 200, 200)):
 		img = np.zeros((height, width, 3), dtype=np.uint8)
@@ -274,9 +317,13 @@ if __name__ == '__main__':
 		_set_texture_if_exists("texture_tag", main_msg, frame_width, frame_height)
 		_set_texture_if_exists("zones_and_tops_texture", side_msg, zones_and_tops_display_width, zones_and_tops_display_height)
 		_set_texture_if_exists("name_texture", name_msg, name_data_width, name_data_height)
+		if has_category_area:
+			cat_msg = _render_message_image(category_data_width, category_data_height, "...", bg_color=(25, 25, 25))
+			_set_texture_if_exists("category_texture", cat_msg, category_data_width, category_data_height)
 		_set_texture_if_exists("attempts_total_texture", attempt_msg, attempt_totals_width, attempt_totals_height)
 
 		set_export_buttons_enabled(False)
+		set_ocr_population_status("OCR autofill in progress...")
 
 	def show_error_state(error_message):
 		error_main = _render_message_image(
@@ -295,9 +342,13 @@ if __name__ == '__main__':
 		_set_texture_if_exists("texture_tag", error_main, frame_width, frame_height)
 		_set_texture_if_exists("zones_and_tops_texture", black_side, zones_and_tops_display_width, zones_and_tops_display_height)
 		_set_texture_if_exists("name_texture", black_name, name_data_width, name_data_height)
+		if has_category_area:
+			black_cat = np.zeros((category_data_height, category_data_width, 3), dtype=np.uint8)
+			_set_texture_if_exists("category_texture", black_cat, category_data_width, category_data_height)
 		_set_texture_if_exists("attempts_total_texture", black_attempt, attempt_totals_width, attempt_totals_height)
 
 		set_export_buttons_enabled(False)
+		set_ocr_population_status("OCR autofill not completed (processing error)")
 
 	def update_queue_ui():
 		global queue_error_map
@@ -462,6 +513,12 @@ if __name__ == '__main__':
 
 		draw_data()
 		ocr_name, ocr_status = autofill_name_from_frame(full_page)
+		category_values = None
+		category_status = None
+		if has_category_area:
+			is_male_value, age_cat_value, category_status = autofill_category_from_frame(full_page)
+			category_values = (is_male_value, age_cat_value)
+		update_ocr_population_status(ocr_name, ocr_status, category_values, category_status)
 		update_queue_ui()
 		set_export_buttons_enabled(True)
 		if ocr_name:
@@ -938,6 +995,8 @@ if __name__ == '__main__':
 		draw_frame(frame)
 		draw_zones_and_tops(full_page)
 		draw_name_data(full_page)
+		if has_category_area:
+			draw_category_data(full_page)
 		draw_attempts_total(full_page)
 
 
@@ -1021,6 +1080,79 @@ if __name__ == '__main__':
 		if dpg.does_item_exist("user_name"):
 			dpg.set_value("user_name", ocr_name)
 		return ocr_name, ocr_status
+
+	def extract_category_area(frame):
+		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["category"]
+		y_min = int(y_ratio_min * frame.shape[0])
+		y_max = int(y_ratio_max * frame.shape[0])
+		x_min = int(x_ratio_min * frame.shape[1])
+		x_max = int(x_ratio_max * frame.shape[1])
+		cutout = frame[y_min:y_max, x_min:x_max]
+		return cv2.resize(cutout, (category_data_width, category_data_height), interpolation=cv2.INTER_LINEAR)
+
+	_AGE_CATEGORIES = ["U15", "U17", "U19", "U21"]
+
+	def read_category_from_image(frame):
+		"""Returns (is_male: bool|None, age_cat: str|None, status: str|None)."""
+		if pytesseract is None:
+			return None, None, "category OCR unavailable: install pytesseract"
+		if tesseract_cmd is None:
+			return None, None, f"category OCR unavailable: set {TESSERACT_ENV_VAR} or install Tesseract"
+
+		processed = preprocess_name_for_ocr(frame)
+		try:
+			raw = pytesseract.image_to_string(processed, config="--oem 3 --psm 6")
+		except Exception as e:
+			return None, None, f"category OCR failed: {e}"
+
+		text_upper = raw.upper()
+
+		# Determine gender: check female first to avoid "male" matching inside "female".
+		is_male = None
+		if "FEMALE" in text_upper:
+			is_male = False
+		elif "MALE" in text_upper:
+			is_male = True
+
+		# Determine age category: exact substring match first, then closest word.
+		age_cat = None
+		for cat in _AGE_CATEGORIES:
+			if cat in text_upper:
+				age_cat = cat
+				break
+		if age_cat is None:
+			for word in text_upper.split():
+				matches = difflib.get_close_matches(word, _AGE_CATEGORIES, n=1, cutoff=0.6)
+				if matches:
+					age_cat = matches[0]
+					break
+
+		return is_male, age_cat, None
+
+	def autofill_category_from_frame(frame):
+		if not has_category_area:
+			return
+		cat_crop = extract_category_area(frame)
+		is_male, age_cat, status = read_category_from_image(cat_crop)
+		if is_male is not None and dpg.does_item_exist("is_male"):
+			dpg.set_value("is_male", is_male)
+		if age_cat is not None and dpg.does_item_exist("age_category"):
+			dpg.set_value("age_category", age_cat)
+		return is_male, age_cat, status
+
+	def draw_category_data(frame):
+		global category_texture_data
+		if not has_category_area:
+			return
+		frame = frame.copy()
+		frame = extract_category_area(frame)
+		try:
+			data = frame.flatten()
+			data = np.float32(data)
+			category_texture_data = np.true_divide(data, 255.0)
+			dpg.set_value("category_texture", category_texture_data)
+		except Exception as e:
+			print(f"Error drawing category data: {e}")
 
 	def draw_attempts_total(frame):
 		global attempts_total_data, amountZT, triesZT
@@ -1205,8 +1337,10 @@ if __name__ == '__main__':
 
 		name = dpg.get_value("user_name")
 		sex = "M" if dpg.get_value("is_male") else "V"
+		age_cat = dpg.get_value("age_category") if dpg.does_item_exist("age_category") else ""
 		exportString = f"{name},"
 		exportString += f"{sex},"
+		exportString += f"{age_cat},"
 		file_path = Path(filename)
 		only_file_name = file_path.name
 		exportString += only_file_name
@@ -1276,6 +1410,8 @@ if __name__ == '__main__':
 							format=dpg.mvFormat_Float_rgb)
 		dpg.add_raw_texture(name_data_width, name_data_height, name_texture_data, tag="name_texture",
 							format=dpg.mvFormat_Float_rgb)
+		dpg.add_raw_texture(max(1, category_data_width), max(1, category_data_height), category_texture_data, tag="category_texture",
+							format=dpg.mvFormat_Float_rgb)
 		dpg.add_raw_texture(attempt_totals_width, attempt_totals_height, attempts_total_data, tag="attempts_total_texture",
 							format=dpg.mvFormat_Float_rgb)
 		dpg.add_raw_texture(frame_width, frame_height, debug_texture_data, tag="debug_texture",
@@ -1298,30 +1434,41 @@ if __name__ == '__main__':
 						dpg.add_image("zones_and_tops_texture")
 						dpg.add_spacer(width=controls_panel_gap)
 						with dpg.group():
-							dpg.add_text(f"Naam kandidaat:")
+							dpg.add_text(f"Name contestant:")
 							dpg.add_input_text(tag=f"user_name")
-							dpg.add_text(f"Is kandidaat man?")
-							dpg.add_checkbox(tag=f"is_male", default_value = True)
+							with dpg.group(horizontal=True):
+								dpg.add_text(f"Is contestant male?")
+								dpg.add_checkbox(tag=f"is_male", default_value=True)
+							with dpg.group(horizontal=True):
+								dpg.add_text("Category:")
+								dpg.add_combo(_AGE_CATEGORIES, tag="age_category", default_value=_AGE_CATEGORIES[0], width=80)
+							dpg.add_spacer(height=15)
 							dpg.add_button(label="export", tag="export_button", callback=export_to_csv)
 							dpg.add_button(label="export to ground truth", tag="export_ground_truth_button", callback=export_to_ground_truth)
 							dpg.add_button(label="Show Debug Screen", tag="show_debug_button", callback=show_debug_screen)
-							dpg.add_spacer(height=8)
+							dpg.add_spacer(height=15)
 							dpg.add_text("Scan directory")
 							dpg.add_input_text(tag="scan_dir_input", default_value=str(to_process_data_folder), width=240)
 							dpg.add_button(label="Apply + Refresh", callback=apply_scan_directory_and_refresh)
 							dpg.add_button(label="Refresh Queue", callback=refresh_file_queue)
+							dpg.add_spacer(height=15)
 							dpg.add_text("Queue: 0 file(s)", tag="queue_count_text")
 							dpg.add_text("Ready", tag="scan_status_text", wrap=240)
 							dpg.add_text("Current: -", tag="current_file_text")
 							with dpg.child_window(tag="queue_list_container", width=240, height=220, border=True):
 								pass
-							dpg.add_spacer(height=12)
+							dpg.add_spacer(height=60)
+							dpg.add_text("OCR autofill status:")
+							dpg.add_input_text(tag="ocr_population_status_text", default_value="OCR autofill idle", width=240, readonly=True)
+							dpg.add_spacer(height=20)
 							dpg.add_button(label="Error check ALL (will stall UI)", tag="error_check_all_button", callback=error_check_all_queued_files)
 							dpg.add_text("Error check idle", tag="error_check_progress_text", wrap=240)
 							dpg.add_progress_bar(default_value=0.0, tag="error_check_progress_bar", width=240, overlay="0 / 0")
 			with dpg.table_row():
 				with dpg.table_cell():
 					dpg.add_image("name_texture")
+					if has_category_area:
+						dpg.add_image("category_texture")
 				with dpg.table_cell():
 					with dpg.group(horizontal=True):
 						dpg.add_image("attempts_total_texture")

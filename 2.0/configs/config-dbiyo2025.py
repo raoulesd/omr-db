@@ -16,6 +16,7 @@ RESULTS_CSV_PATH = BASE_DIR / "results.csv"
 # Relative coordinates (x_min, x_max, y_min, y_max) for UI cutouts.
 UI_AREAS = {
 	"name": (0.12, 0.64, 0.02, 0.078),
+	"category": (0.1, 0.36, 0.07, 0.1),
 	"tickbox": (0.78, 1.00, 0.125, 0.805),
 	"attempts_total": (0.65, 1.00, 0.80, 0.90),
 }
@@ -35,6 +36,10 @@ FRAME_HEIGHT = int(_BASE_FRAME_HEIGHT * UI_SCALE)
 _name_coords = UI_AREAS["name"]
 NAME_DATA_WIDTH = int((_name_coords[1] - _name_coords[0]) * FRAME_WIDTH)
 NAME_DATA_HEIGHT = int((_name_coords[3] - _name_coords[2]) * FRAME_HEIGHT)
+
+_category_coords = UI_AREAS["category"]
+CATEGORY_DATA_WIDTH = int((_category_coords[1] - _category_coords[0]) * FRAME_WIDTH)
+CATEGORY_DATA_HEIGHT = int((_category_coords[3] - _category_coords[2]) * FRAME_HEIGHT)
 
 _tickbox_coords = UI_AREAS["tickbox"]
 ZONES_AND_TOPS_WIDTH = int((_tickbox_coords[1] - _tickbox_coords[0]) * FRAME_WIDTH)
