@@ -2,6 +2,7 @@ import difflib
 import os
 import shutil
 import textwrap
+import uuid
 from pathlib import Path
 import dearpygui.dearpygui as dpg
 import cv2 as cv
@@ -25,6 +26,19 @@ COMMON_TESSERACT_PATHS = (
 	r"C:\Program Files\Tesseract-OCR\tesseract.exe",
 	r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
 )
+OCR_GENDER_CHAR_SUBS = str.maketrans({
+	"0": "O",
+	"1": "I",
+	"3": "E",
+	"4": "A",
+	"5": "S",
+	"6": "G",
+	"7": "T",
+	"8": "B",
+	"9": "G",
+	"|": "I",
+	"!": "I",
+})
 
 
 def resolve_tesseract_cmd():
@@ -55,6 +69,55 @@ def normalize_ocr_name(text):
 
 	return " ".join("".join(cleaned_chars).split()).strip()
 
+
+def tokenize_gender_ocr(text):
+	normalized = text.upper().translate(OCR_GENDER_CHAR_SUBS).replace("\n", " ").replace("\f", " ")
+	cleaned_chars = []
+	for char in normalized:
+		cleaned_chars.append(char if char.isalnum() else " ")
+	return [token for token in "".join(cleaned_chars).split() if token]
+
+
+def detect_gender_from_ocr_texts(text_candidates):
+	female_score = 0.0
+	male_score = 0.0
+
+	for raw in text_candidates:
+		tokens = tokenize_gender_ocr(raw)
+		if not tokens:
+			continue
+
+		# Join tokens too, to catch split OCR like "FEM ALE".
+		for token in tokens + ["".join(tokens)]:
+			if not token:
+				continue
+
+			if token == "F":
+				female_score += 2.0
+			if token == "M":
+				male_score += 2.0
+
+			if "FEMALE" in token:
+				female_score += 4.0
+			if token == "MALE" or ("MALE" in token and "FEMALE" not in token):
+				male_score += 3.0
+
+			ratio_female = difflib.SequenceMatcher(None, token, "FEMALE").ratio()
+			ratio_male = difflib.SequenceMatcher(None, token, "MALE").ratio()
+			if ratio_female >= 0.72:
+				female_score += (ratio_female - 0.7) * 5.0
+			if ratio_male >= 0.86 and ratio_female < 0.72:
+				male_score += (ratio_male - 0.85) * 6.0
+
+	if female_score <= 0.0 and male_score <= 0.0:
+		return None
+	# Slight tie-break toward FEMALE because "MALE" can appear inside noisy FEMALE OCR.
+	if female_score >= male_score * 0.95 and female_score > 0.0:
+		return False
+	if male_score > 0.0:
+		return True
+	return None
+
 if __name__ == '__main__':
 
 	cfg = app_config.set_active_config(CONFIG_FILE_NAME)
@@ -65,6 +128,8 @@ if __name__ == '__main__':
 	processed_data_folder = Path(cfg.PROCESSED_FILES_DIR)
 	to_process_data_folder = Path(cfg.SCANNED_FILES_DIR)
 	errored_data_folder = Path(cfg.ERRORED_FILES_DIR)
+	instance_id = f"{os.getpid():x}{uuid.uuid4().hex[:2]}"
+	processing_data_folder = to_process_data_folder.parent / f"processing_{instance_id}"
 	results_csv_path = Path(cfg.RESULTS_CSV_PATH)
 	ui_areas = cfg.UI_AREAS
 
@@ -96,7 +161,7 @@ if __name__ == '__main__':
 	category_data_height = getattr(cfg, "CATEGORY_DATA_HEIGHT", 0)
 	has_category_area = "category" in ui_areas and category_data_width > 0 and category_data_height > 0
 
-	paths = [processed_data_folder, to_process_data_folder, errored_data_folder]
+	paths = [processed_data_folder, to_process_data_folder, errored_data_folder, processing_data_folder]
 	for p in paths:
 		if not p.exists():
 			p.mkdir(parents=True, exist_ok=True)
@@ -156,6 +221,89 @@ if __name__ == '__main__':
 		if dpg.does_item_exist("scan_status_text"):
 			dpg.set_value("scan_status_text", message)
 		print(message)
+
+	def move_file_to_folder(source_path, target_folder):
+		target_folder.mkdir(parents=True, exist_ok=True)
+		source = Path(source_path)
+		candidate = target_folder / source.name
+		if not candidate.exists():
+			source.rename(candidate)
+			return candidate
+
+		counter = 1
+		while True:
+			candidate = target_folder / f"{source.stem}__{counter}{source.suffix}"
+			if not candidate.exists():
+				source.rename(candidate)
+				return candidate
+			counter += 1
+
+	def claim_file_for_instance(candidate):
+		source = Path(candidate)
+		if not source.exists():
+			return None, "File no longer exists (possibly claimed by another instance)."
+
+		processing_data_folder.mkdir(parents=True, exist_ok=True)
+		claimed = processing_data_folder / source.name
+		if claimed.exists():
+			return None, f"Could not claim file: claim target already exists ({claimed.name})"
+
+		try:
+			source.rename(claimed)
+		except Exception as e:
+			return None, f"Could not claim file: {e}"
+
+		return str(claimed), None
+
+	def release_current_file_to_queue():
+		global filename
+		if filename is None:
+			return True
+
+		current_path = Path(filename)
+		if not current_path.exists():
+			filename = None
+			return True
+
+		try:
+			restored_path = move_file_to_folder(current_path, to_process_data_folder)
+		except Exception as e:
+			set_status(f"Could not put back current file {current_path.name}: {e}")
+			return False
+
+		set_status(f"Returned unexported file to queue: {restored_path.name}")
+		filename = None
+		return True
+
+	def restore_processing_folder_on_exit():
+		if not processing_data_folder.exists():
+			return
+
+		moved_count = 0
+		failed = []
+		for p in sorted(processing_data_folder.iterdir()):
+			if not p.is_file():
+				continue
+			try:
+				move_file_to_folder(p, to_process_data_folder)
+				moved_count += 1
+			except Exception as e:
+				failed.append(f"{p.name}: {e}")
+
+		if moved_count:
+			print(f"Returned {moved_count} file(s) from {processing_data_folder.name} to {to_process_data_folder}")
+
+		if failed:
+			print("Could not restore some files from processing folder:")
+			for message in failed:
+				print(f" - {message}")
+
+		try:
+			processing_data_folder.rmdir()
+			print(f"Removed processing folder: {processing_data_folder}")
+		except OSError:
+			# Folder may still contain files/subfolders when restoration fails.
+			pass
 
 	def set_ocr_population_status(message):
 		if dpg.does_item_exist("ocr_population_status_text"):
@@ -435,12 +583,15 @@ if __name__ == '__main__':
 		fileList.extend(added_files)
 
 		current_removed = False
-		if filename is not None and filename not in disk_set:
-			set_status(f"Current file was removed: {Path(filename).name}")
-			filename = None
-			current_removed = True
+		if filename is not None:
+			current_path = Path(filename)
+			# Current file may be in this instance's processing folder and should remain active.
+			if not current_path.exists():
+				set_status(f"Current file was removed: {current_path.name}")
+				filename = None
+				current_removed = True
 
-		if last_failed_file is not None and last_failed_file not in disk_set:
+		if last_failed_file is not None and not Path(last_failed_file).exists():
 			last_failed_file = None
 
 		update_queue_ui()
@@ -465,43 +616,67 @@ if __name__ == '__main__':
 
 	def apply_scan_directory_and_refresh(sender, app_data):
 		global to_process_data_folder
+		global processing_data_folder
 		global queue_error_map
 		global queue_error_scan_has_run
 		new_dir = Path(dpg.get_value("scan_dir_input")).expanduser()
 		to_process_data_folder = new_dir
+		processing_data_folder = to_process_data_folder.parent / f"processing_{instance_id}"
 		if not to_process_data_folder.exists():
 			to_process_data_folder.mkdir(parents=True, exist_ok=True)
+		if not processing_data_folder.exists():
+			processing_data_folder.mkdir(parents=True, exist_ok=True)
 		queue_error_map = {}
 		queue_error_scan_has_run = False
 		set_error_check_progress(0, 0, is_running=False)
-		set_status(f"Using scan directory: {to_process_data_folder}")
+		set_status(f"Using scan directory: {to_process_data_folder} | Instance claim folder: {processing_data_folder.name}")
 		refresh_file_queue()
 
 	def load_file(candidate):
 		global filename, last_failed_file, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page, queue_error_map
 
 		if not Path(candidate).exists():
-			set_status(f"File no longer exists: {Path(candidate).name}")
+			set_status(f"File no longer exists in queue: {Path(candidate).name}")
 			if candidate in fileList:
 				fileList.remove(candidate)
 			update_queue_ui()
 			return False
 
-		filename = candidate
-		show_loading_state(candidate)
+		claimed_path, claim_error = claim_file_for_instance(candidate)
+		if claim_error:
+			set_status(f"Could not load {Path(candidate).name}: {claim_error}")
+			if candidate in fileList:
+				fileList.remove(candidate)
+			refresh_file_queue()
+			return False
+
+		if candidate in fileList:
+			fileList.remove(candidate)
+
+		filename = claimed_path
+		show_loading_state(filename)
 		try:
 			filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False, config_name=CONFIG_FILE_NAME)
 		except Exception as e:
-			queue_error_map[candidate] = str(e)
-			set_status(f"Error reading {Path(filename).name}: {e}")
-			show_error_state(f"{Path(filename).name}: {e}")
-			last_failed_file = candidate
+			failed_path = Path(filename)
+			queue_error_map.pop(candidate, None)
+			try:
+				moved_failed_path = move_file_to_folder(failed_path, errored_data_folder)
+			except Exception as move_error:
+				set_status(f"Error reading {failed_path.name}: {e} | Could not move to errored: {move_error}")
+				show_error_state(f"{failed_path.name}: {e}")
+				last_failed_file = str(failed_path)
+			else:
+				set_status(f"Error reading {failed_path.name}: {e} | Moved to errored: {moved_failed_path.name}")
+				show_error_state(f"{failed_path.name}: {e}")
+				last_failed_file = str(moved_failed_path)
 			filename = None
-			update_queue_ui()
+			refresh_file_queue()
 			return False
 
 		last_failed_file = None
 		queue_error_map.pop(candidate, None)
+		queue_error_map.pop(filename, None)
 
 		cell_data = np.zeros((ROWS, COLS), dtype=np.uint8)
 		for (r, c) in filled_cells:
@@ -533,6 +708,11 @@ if __name__ == '__main__':
 		selected_path = user_data
 		if not selected_path:
 			return
+
+		if filename is not None:
+			if not release_current_file_to_queue():
+				return
+			refresh_file_queue()
 
 		load_file(selected_path)
 
@@ -1100,19 +1280,32 @@ if __name__ == '__main__':
 			return None, None, f"category OCR unavailable: set {TESSERACT_ENV_VAR} or install Tesseract"
 
 		processed = preprocess_name_for_ocr(frame)
+		ocr_images = [
+			processed,
+			cv2.bitwise_not(processed),
+			cv2.adaptiveThreshold(processed, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2),
+		]
+		ocr_configs = (
+			"--oem 3 --psm 6",
+			"--oem 3 --psm 7",
+			"--oem 3 --psm 11",
+		)
+		ocr_texts = []
+
 		try:
-			raw = pytesseract.image_to_string(processed, config="--oem 3 --psm 6")
+			for image in ocr_images:
+				for config in ocr_configs:
+					raw = pytesseract.image_to_string(image, config=config)
+					if raw and raw.strip():
+						ocr_texts.append(raw)
 		except Exception as e:
 			return None, None, f"category OCR failed: {e}"
 
-		text_upper = raw.upper()
+		if not ocr_texts:
+			return None, None, "category OCR found no text"
 
-		# Determine gender: check female first to avoid "male" matching inside "female".
-		is_male = None
-		if "FEMALE" in text_upper:
-			is_male = False
-		elif "MALE" in text_upper:
-			is_male = True
+		text_upper = "\n".join(ocr_texts).upper()
+		is_male = detect_gender_from_ocr_texts(ocr_texts)
 
 		# Determine age category: exact substring match first, then closest word.
 		age_cat = None
@@ -1356,9 +1549,8 @@ if __name__ == '__main__':
 		csvFile.write(f"{exportString}\n")
 		csvFile.flush()
 
-		# Move the png file
-		moved_file_name = processed_data_folder / only_file_name
-		Path(filename).rename(moved_file_name)
+		# Move the claimed source file out of this instance processing folder.
+		moved_file_name = move_file_to_folder(Path(filename), processed_data_folder)
 		if filename in fileList:
 			fileList.remove(filename)
 		queue_error_map.pop(str(file_path), None)
@@ -1383,8 +1575,6 @@ if __name__ == '__main__':
 
 		pure_file_name = Path(filename).name
 
-		moved_file_name = processed_data_folder / pure_file_name
-
 		output_file_name = processed_data_folder / (Path(pure_file_name).stem + ".csv")
 
 		with open(output_file_name, "w") as f:
@@ -1392,8 +1582,8 @@ if __name__ == '__main__':
 				f.write(f"{cell[0]},{cell[1]}\n")
 
 
-		# Move the png file
-		Path(filename).rename(moved_file_name)
+		# Move the claimed source file out of this instance processing folder.
+		move_file_to_folder(Path(filename), processed_data_folder)
 		if filename in fileList:
 			fileList.remove(filename)
 		queue_error_map.pop(str(Path(filename)), None)
@@ -1434,6 +1624,8 @@ if __name__ == '__main__':
 						dpg.add_image("zones_and_tops_texture")
 						dpg.add_spacer(width=controls_panel_gap)
 						with dpg.group():
+							dpg.add_text(f"UI Instance: {instance_id}")
+							dpg.add_spacer(height=8)
 							dpg.add_text(f"Name contestant:")
 							dpg.add_input_text(tag=f"user_name")
 							with dpg.group(horizontal=True):
@@ -1474,6 +1666,7 @@ if __name__ == '__main__':
 						dpg.add_image("attempts_total_texture")
 
 	show_loading_state("Starting up...")
+	set_status(f"Instance {instance_id} using claim folder: {processing_data_folder.name}")
 	refresh_file_queue()
 	update_queue_ui()
 	if filename is None and last_failed_file is None:
@@ -1488,8 +1681,11 @@ if __name__ == '__main__':
 		dpg.add_mouse_release_handler(button=0, callback=on_debug_mouse_release)
 		dpg.add_mouse_move_handler(callback=on_debug_mouse_move)
 
-	dpg.show_viewport()
-	dpg.maximize_viewport()
-	dpg.set_primary_window("mainWindow", True)
-	dpg.start_dearpygui()
-	dpg.destroy_context()
+	try:
+		dpg.show_viewport()
+		dpg.maximize_viewport()
+		dpg.set_primary_window("mainWindow", True)
+		dpg.start_dearpygui()
+	finally:
+		dpg.destroy_context()
+		restore_processing_folder_on_exit()
