@@ -1,5 +1,6 @@
 import difflib
 import os
+import re
 import shutil
 import textwrap
 import uuid
@@ -70,53 +71,29 @@ def normalize_ocr_name(text):
 	return " ".join("".join(cleaned_chars).split()).strip()
 
 
+def extract_contestant_number(text):
+	digit_groups = re.findall(r"\d+", text.replace("\n", " ").replace("\f", " "))
+	if not digit_groups:
+		return ""
+	return max(digit_groups, key=len)
+
+
 def tokenize_gender_ocr(text):
 	normalized = text.upper().translate(OCR_GENDER_CHAR_SUBS).replace("\n", " ").replace("\f", " ")
 	cleaned_chars = []
 	for char in normalized:
-		cleaned_chars.append(char if char.isalnum() else " ")
+		cleaned_chars.append(char if char.isalpha() else " ")
 	return [token for token in "".join(cleaned_chars).split() if token]
 
 
 def detect_gender_from_ocr_texts(text_candidates):
-	female_score = 0.0
-	male_score = 0.0
-
+	joined = ""
 	for raw in text_candidates:
-		tokens = tokenize_gender_ocr(raw)
-		if not tokens:
-			continue
+		joined += "".join(tokenize_gender_ocr(raw))
 
-		# Join tokens too, to catch split OCR like "FEM ALE".
-		for token in tokens + ["".join(tokens)]:
-			if not token:
-				continue
-
-			if token == "F":
-				female_score += 2.0
-			if token == "M":
-				male_score += 2.0
-
-			if "FEMALE" in token:
-				female_score += 4.0
-			if token == "MALE" or ("MALE" in token and "FEMALE" not in token):
-				male_score += 3.0
-
-			ratio_female = difflib.SequenceMatcher(None, token, "FEMALE").ratio()
-			ratio_male = difflib.SequenceMatcher(None, token, "MALE").ratio()
-			if ratio_female >= 0.72:
-				female_score += (ratio_female - 0.7) * 5.0
-			if ratio_male >= 0.86 and ratio_female < 0.72:
-				male_score += (ratio_male - 0.85) * 6.0
-
-	if female_score <= 0.0 and male_score <= 0.0:
-		return None
-	# Slight tie-break toward FEMALE because "MALE" can appear inside noisy FEMALE OCR.
-	if female_score >= male_score * 0.95 and female_score > 0.0:
+	if "F" in joined:
 		return False
-	if male_score > 0.0:
-		return True
-	return None
+	return True
 
 if __name__ == '__main__':
 
@@ -216,6 +193,32 @@ if __name__ == '__main__':
 			dpg.add_theme_color(dpg.mvThemeCol_Button, (45, 95, 135, 255))
 			dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (60, 120, 165, 255))
 			dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (35, 75, 110, 255))
+
+	with dpg.theme(tag="ocr_status_red_theme"):
+		with dpg.theme_component(dpg.mvInputText):
+			dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (60, 40, 40, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 235, 235, 255))
+
+	with dpg.theme(tag="ocr_status_yellow_theme"):
+		with dpg.theme_component(dpg.mvInputText):
+			dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (60, 55, 40, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 245, 210, 255))
+
+	with dpg.theme(tag="ocr_status_green_theme"):
+		with dpg.theme_component(dpg.mvInputText):
+			dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (40, 60, 45, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_Text, (225, 255, 235, 255))
+
+	def set_ocr_status_bar(state):
+		if not dpg.does_item_exist("ocr_population_status_text"):
+			return
+
+		if state == "in_progress":
+			dpg.bind_item_theme("ocr_population_status_text", "ocr_status_red_theme")
+		elif state == "success":
+			dpg.bind_item_theme("ocr_population_status_text", "ocr_status_green_theme")
+		else:
+			dpg.bind_item_theme("ocr_population_status_text", "ocr_status_yellow_theme")
 
 	def set_status(message):
 		if dpg.does_item_exist("scan_status_text"):
@@ -338,6 +341,10 @@ if __name__ == '__main__':
 			base_message = f"{base_message} | {'; '.join(notes)}"
 
 		set_ocr_population_status(base_message)
+		if missing_fields or notes:
+			set_ocr_status_bar("warning")
+		else:
+			set_ocr_status_bar("success")
 
 	def set_export_buttons_enabled(enabled):
 		if dpg.does_item_exist("export_button"):
@@ -404,6 +411,7 @@ if __name__ == '__main__':
 		if dpg.does_item_exist("attempts_total_texture"):
 			dpg.set_value("attempts_total_texture", np.zeros((attempt_totals_height * attempt_totals_width * 3,), dtype=np.float32))
 		set_ocr_population_status("OCR autofill idle")
+		set_ocr_status_bar("warning")
 
 	def _render_message_image(width, height, title, subtitle=None, bg_color=(0, 0, 0), title_color=(255, 255, 255), subtitle_color=(200, 200, 200)):
 		img = np.zeros((height, width, 3), dtype=np.uint8)
@@ -472,6 +480,7 @@ if __name__ == '__main__':
 
 		set_export_buttons_enabled(False)
 		set_ocr_population_status("OCR autofill in progress...")
+		set_ocr_status_bar("in_progress")
 
 	def show_error_state(error_message):
 		error_main = _render_message_image(
@@ -497,6 +506,7 @@ if __name__ == '__main__':
 
 		set_export_buttons_enabled(False)
 		set_ocr_population_status("OCR autofill not completed (processing error)")
+		set_ocr_status_bar("warning")
 
 	def update_queue_ui():
 		global queue_error_map
@@ -687,7 +697,7 @@ if __name__ == '__main__':
 		frame = warped_u8
 
 		draw_data()
-		ocr_name, ocr_status = autofill_name_from_frame(full_page)
+		ocr_name, contestant_number, ocr_status = autofill_name_from_frame(full_page)
 		category_values = None
 		category_status = None
 		if has_category_area:
@@ -1233,33 +1243,41 @@ if __name__ == '__main__':
 
 	def read_name_from_image(frame):
 		if pytesseract is None:
-			return "", "name OCR unavailable: install pytesseract"
+			return "", "", "name OCR unavailable: install pytesseract"
 		if tesseract_cmd is None:
-			return "", f"name OCR unavailable: set {TESSERACT_ENV_VAR} or install Tesseract"
+			return "", "", f"name OCR unavailable: set {TESSERACT_ENV_VAR} or install Tesseract"
 
 		processed = preprocess_name_for_ocr(frame)
 		ocr_candidates = []
+		number_candidates = []
 		for config in ("--oem 3 --psm 7", "--oem 3 --psm 6"):
 			try:
-				candidate = normalize_ocr_name(pytesseract.image_to_string(processed, config=config))
+				raw = pytesseract.image_to_string(processed, config=config)
+				candidate = normalize_ocr_name(raw)
+				number_candidate = extract_contestant_number(raw)
 			except Exception as e:
 				print(f"Name OCR failed for {filename}: {e}")
-				return "", "name OCR failed"
+				return "", "", "name OCR failed"
 			if candidate:
 				ocr_candidates.append(candidate)
+			if number_candidate:
+				number_candidates.append(number_candidate)
 
 		if not ocr_candidates:
-			return "", "name OCR found no text"
+			return "", "", "name OCR found no text"
 
 		best_match = max(ocr_candidates, key=len)
-		return best_match, None
+		contestant_number = max(number_candidates, key=len) if number_candidates else ""
+		return best_match, contestant_number, None
 
 	def autofill_name_from_frame(frame):
 		name_crop = extract_name_area(frame)
-		ocr_name, ocr_status = read_name_from_image(name_crop)
+		ocr_name, contestant_number, ocr_status = read_name_from_image(name_crop)
 		if dpg.does_item_exist("user_name"):
 			dpg.set_value("user_name", ocr_name)
-		return ocr_name, ocr_status
+		if dpg.does_item_exist("contestant_number"):
+			dpg.set_value("contestant_number", contestant_number)
+		return ocr_name, contestant_number, ocr_status
 
 	def extract_category_area(frame):
 		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["category"]
@@ -1283,12 +1301,11 @@ if __name__ == '__main__':
 		ocr_images = [
 			processed,
 			cv2.bitwise_not(processed),
-			cv2.adaptiveThreshold(processed, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2),
 		]
+		char_whitelist = "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/ "
 		ocr_configs = (
-			"--oem 3 --psm 6",
-			"--oem 3 --psm 7",
-			"--oem 3 --psm 11",
+			f"--oem 3 --psm 6 {char_whitelist}",
+			f"--oem 3 --psm 7 {char_whitelist}",
 		)
 		ocr_texts = []
 
@@ -1306,6 +1323,9 @@ if __name__ == '__main__':
 
 		text_upper = "\n".join(ocr_texts).upper()
 		is_male = detect_gender_from_ocr_texts(ocr_texts)
+		gender_tokens = []
+		for raw in ocr_texts:
+			gender_tokens.extend(tokenize_gender_ocr(raw))
 
 		# Determine age category: exact substring match first, then closest word.
 		age_cat = None
@@ -1320,7 +1340,15 @@ if __name__ == '__main__':
 					age_cat = matches[0]
 					break
 
-		return is_male, age_cat, None
+		status = None
+		if is_male is None:
+			preview_tokens = gender_tokens[:8]
+			if preview_tokens:
+				status = f"gender OCR uncertain (detected: {' '.join(preview_tokens)})"
+			else:
+				status = "gender OCR uncertain (detected: no usable gender text)"
+
+		return is_male, age_cat, status
 
 	def autofill_category_from_frame(frame):
 		if not has_category_area:
@@ -1529,9 +1557,11 @@ if __name__ == '__main__':
 			return
 
 		name = dpg.get_value("user_name")
+		contestant_number = dpg.get_value("contestant_number") if dpg.does_item_exist("contestant_number") else ""
 		sex = "M" if dpg.get_value("is_male") else "V"
 		age_cat = dpg.get_value("age_category") if dpg.does_item_exist("age_category") else ""
 		exportString = f"{name},"
+		exportString += f"{contestant_number},"
 		exportString += f"{sex},"
 		exportString += f"{age_cat},"
 		file_path = Path(filename)
@@ -1558,6 +1588,8 @@ if __name__ == '__main__':
 		last_failed_file = None
 
 		dpg.set_value("user_name", "")
+		if dpg.does_item_exist("contestant_number"):
+			dpg.set_value("contestant_number", "")
 		refresh_file_queue()
 		get_next_file(False)
 
@@ -1628,6 +1660,8 @@ if __name__ == '__main__':
 							dpg.add_spacer(height=8)
 							dpg.add_text(f"Name contestant:")
 							dpg.add_input_text(tag=f"user_name")
+							dpg.add_text("Contestant number:")
+							dpg.add_input_text(tag="contestant_number")
 							with dpg.group(horizontal=True):
 								dpg.add_text(f"Is contestant male?")
 								dpg.add_checkbox(tag=f"is_male", default_value=True)
