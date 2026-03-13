@@ -17,7 +17,7 @@ except ImportError:
 COLUMNS = 9
 ROWS = 20
 ANSWERS = 3
-CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-dbiyo2026")
+CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-dbiyo2025")
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 TESSERACT_ENV_VAR = "TESSERACT_CMD"
 COMMON_TESSERACT_PATHS = (
@@ -76,13 +76,17 @@ if __name__ == '__main__':
 
 	zones_and_tops_width = cfg.ZONES_AND_TOPS_WIDTH
 	zones_and_tops_height = cfg.ZONES_AND_TOPS_HEIGHT
+	zones_and_tops_left_padding = 48
 	# Display zones/tops at main-frame height while keeping its original aspect ratio.
 	zones_and_tops_display_height = frame_height
-	zones_and_tops_display_width = max(
+	zones_and_tops_base_display_width = max(
 		1,
 		int(round(zones_and_tops_width * (zones_and_tops_display_height / float(max(1, zones_and_tops_height)))))
 	)
-	side_panel_width = max(zones_and_tops_display_width, attempt_totals_width)
+	zones_and_tops_display_width = zones_and_tops_base_display_width + zones_and_tops_left_padding
+	controls_panel_width = 280
+	controls_panel_gap = 16
+	side_panel_width = max(zones_and_tops_display_width + controls_panel_gap + controls_panel_width, attempt_totals_width)
 
 	name_data_width = cfg.NAME_DATA_WIDTH
 	name_data_height = cfg.NAME_DATA_HEIGHT
@@ -815,8 +819,15 @@ if __name__ == '__main__':
 		x_max = int(x_ratio_max * frame.shape[1])
 
 		cutout = frame[y_min:y_max, x_min:x_max]
+		resized_cutout = cv2.resize(
+			cutout,
+			(zones_and_tops_base_display_width, zones_and_tops_display_height),
+			interpolation=cv2.INTER_LINEAR,
+		)
 
-		return cv2.resize(cutout, (zones_and_tops_display_width, zones_and_tops_display_height), interpolation=cv2.INTER_LINEAR)
+		canvas = np.full((zones_and_tops_display_height, zones_and_tops_display_width, 3), 255, dtype=np.uint8)
+		canvas[:, zones_and_tops_left_padding:zones_and_tops_left_padding + zones_and_tops_base_display_width] = resized_cutout
+		return canvas
 
 	def extract_attempts_total(frame):
 		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["attempts_total"]
@@ -936,13 +947,15 @@ if __name__ == '__main__':
 		frame = frame.copy()
 
 		frame = extract_zones_and_tops_area(frame)
+		left_label_x = max(6, int(frame.shape[1] * 0.02))
 
 		# Write the zones and tops amounts on the frame
 		num_boulders = len(per_boulder_ZT)
 		for b in range(num_boulders):
-			zone_x = int(zones_and_tops_width * 1.1)
-			top_x = int(zones_and_tops_width * 1.3)
+			zone_x = int(zones_and_tops_width * 1.5)
+			top_x = int(zones_and_tops_width * 1.7)
 			y = int(((b+1) / num_boulders) * frame.shape[0] * 0.99)
+			cv2.putText(frame, str(b + 1), (left_label_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2)
 			(zone, top) = per_boulder_ZT[b]
 			if zone is not None:
 				cv2.putText(frame, str(zone), (zone_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
@@ -988,14 +1001,17 @@ if __name__ == '__main__':
 		global row_centers_sorted, col_centers_sorted, med_w, med_h
 
 		original_image = frame.copy()
+		left_label_x = max(6, int(med_w * 0.2))
 
 		num_rows = cell_data.shape[0]
 		num_cols = cell_data.shape[1]
 
 		for row in range(num_rows):
+			row_y = int(row_centers_sorted[row])
+			cv2.putText(original_image, str(row + 1), (left_label_x, row_y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
 			for col in range(num_cols):
 				x = int(col_centers_sorted[col])
-				y = int(row_centers_sorted[row])
+				y = row_y
 
 				# Draw a circle around the bubble
 				circle_color = (0, 255, 0) if cell_data[row, col] == 1 else (255, 0, 0)
@@ -1147,35 +1163,31 @@ if __name__ == '__main__':
 					dpg.add_image("texture_tag", tag="main_image")
 				with dpg.table_cell():
 					with dpg.group(horizontal=True):
-						if side_panel_width > zones_and_tops_display_width:
-							dpg.add_spacer(width=side_panel_width - zones_and_tops_display_width)
 						dpg.add_image("zones_and_tops_texture")
+						dpg.add_spacer(width=controls_panel_gap)
+						with dpg.group():
+							dpg.add_text(f"Naam kandidaat:")
+							dpg.add_input_text(tag=f"user_name")
+							dpg.add_text(f"Is kandidaat man?")
+							dpg.add_checkbox(tag=f"is_male", default_value = True)
+							dpg.add_button(label="export", tag="export_button", callback=export_to_csv)
+							dpg.add_button(label="export to ground truth", tag="export_ground_truth_button", callback=export_to_ground_truth)
+							dpg.add_button(label="Show Debug Screen", tag="show_debug_button", callback=show_debug_screen)
+							dpg.add_spacer(height=8)
+							dpg.add_text("Scan directory")
+							dpg.add_input_text(tag="scan_dir_input", default_value=str(to_process_data_folder), width=240)
+							dpg.add_button(label="Apply + Refresh", callback=apply_scan_directory_and_refresh)
+							dpg.add_button(label="Refresh Queue", callback=refresh_file_queue)
+							dpg.add_text("Queue: 0 file(s)", tag="queue_count_text")
+							dpg.add_text("Current: -", tag="current_file_text")
+							dpg.add_text("Ready", tag="scan_status_text", wrap=240)
+							dpg.add_listbox([], tag="queue_list", num_items=10, width=240, callback=on_queue_file_selected)
 			with dpg.table_row():
 				with dpg.table_cell():
 					dpg.add_image("name_texture")
 				with dpg.table_cell():
 					with dpg.group(horizontal=True):
-						if side_panel_width > attempt_totals_width:
-							dpg.add_spacer(width=side_panel_width - attempt_totals_width)
 						dpg.add_image("attempts_total_texture")
-			with dpg.table_row():
-				with dpg.table_cell():
-					dpg.add_text(f"Naam kandidaat:")
-					dpg.add_input_text(tag=f"user_name")
-					dpg.add_text(f"Is kandidaat man?")
-					dpg.add_checkbox(tag=f"is_male", default_value = True)
-					dpg.add_button(label="export", tag="export_button", callback=export_to_csv)
-					dpg.add_button(label="export to ground truth", tag="export_ground_truth_button", callback=export_to_ground_truth)
-					dpg.add_button(label="Show Debug Screen", tag="show_debug_button", callback=show_debug_screen)
-				with dpg.table_cell():
-					dpg.add_text("Scan directory")
-					dpg.add_input_text(tag="scan_dir_input", default_value=str(to_process_data_folder), width=240)
-					dpg.add_button(label="Apply + Refresh", callback=apply_scan_directory_and_refresh)
-					dpg.add_button(label="Refresh Queue", callback=refresh_file_queue)
-					dpg.add_text("Queue: 0 file(s)", tag="queue_count_text")
-					dpg.add_text("Current: -", tag="current_file_text")
-					dpg.add_text("Ready", tag="scan_status_text", wrap=240)
-					dpg.add_listbox([], tag="queue_list", num_items=10, width=240, callback=on_queue_file_selected)
 
 	show_loading_state("Starting up...")
 	refresh_file_queue()

@@ -14,8 +14,8 @@ RESULTS_CSV_PATH = BASE_DIR / "results.csv"
 
 # Relative coordinates (x_min, x_max, y_min, y_max) for UI cutouts.
 UI_AREAS = {
-	"name": (0.12, 0.77, 0.02, 0.07),
-	"tickbox": (0.78, 1.00, 0.13, 0.80),
+	"name": (0.12, 0.64, 0.02, 0.078),
+	"tickbox": (0.78, 1.00, 0.125, 0.805),
 	"attempts_total": (0.65, 1.00, 0.80, 0.90),
 }
 
@@ -82,9 +82,8 @@ offset_bl = np.array([0, 0], dtype=np.float32)
 # Optional relative cutout of the detected page quad (x_min, x_max, y_min, y_max).
 # When set, this is converted to dynamic per-corner offsets at runtime.
 # Example: (0.04, 0.9501, 0.126, 0.805)
-CORNER_CUTOUT = (0, 0, 0, 0)
-CORNER_CUTOUT = (0.061, 0.84, 0.04, 0.83)
-CORNER_CUTOUT = (0.05, 0.79, 0.1, 0.81)
+CORNER_CUTOUT = (0.064, 0.82, 0.043, 0.83)
+# CORNER_CUTOUT = (0, 0, 0, 0)
 
 # Whether to crop to the bounded question area after ArUco transform.
 has_bounded_question_area = False
