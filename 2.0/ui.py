@@ -101,7 +101,8 @@ if __name__ == '__main__':
 	fileList = []
 	filename = None
 	last_failed_file = None
-	queue_display_map = {}
+	queue_error_map = {}
+	queue_error_scan_has_run = False
 
 	# Safe defaults so UI can boot even when queue is empty.
 	frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
@@ -132,6 +133,19 @@ if __name__ == '__main__':
 	dpg.create_viewport(title='Review scores', width=1400, height=1000)
 	dpg.setup_dearpygui()
 
+	with dpg.theme(tag="queue_error_theme"):
+		with dpg.theme_component(dpg.mvButton):
+			dpg.add_theme_color(dpg.mvThemeCol_Button, (140, 45, 45, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (170, 60, 60, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (120, 35, 35, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 235, 235, 255))
+
+	with dpg.theme(tag="queue_current_theme"):
+		with dpg.theme_component(dpg.mvButton):
+			dpg.add_theme_color(dpg.mvThemeCol_Button, (45, 95, 135, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (60, 120, 165, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (35, 75, 110, 255))
+
 	def set_status(message):
 		if dpg.does_item_exist("scan_status_text"):
 			dpg.set_value("scan_status_text", message)
@@ -146,6 +160,39 @@ if __name__ == '__main__':
 	def set_debug_button_enabled(enabled):
 		if dpg.does_item_exist("show_debug_button"):
 			dpg.configure_item("show_debug_button", enabled=enabled)
+
+	def set_error_check_button_enabled(enabled):
+		if dpg.does_item_exist("error_check_all_button"):
+			dpg.configure_item("error_check_all_button", enabled=enabled)
+
+	def refresh_ui_frame():
+		if dpg.is_dearpygui_running():
+			dpg.split_frame(delay=1)
+
+	def set_error_check_progress(current, total, current_file=None, is_running=False, status_label=None):
+		if not dpg.does_item_exist("error_check_progress_text"):
+			return
+
+		if total <= 0:
+			progress_value = 0.0
+			overlay = "0 / 0"
+		else:
+			progress_value = max(0.0, min(1.0, current / float(total)))
+			overlay = f"{current} / {total}"
+
+		if status_label is not None:
+			message = status_label
+		elif is_running:
+			if current_file:
+				message = f"Checking {current} / {total}: {Path(current_file).name}"
+			else:
+				message = f"Checking {current} / {total}"
+		else:
+			message = "Error check idle"
+
+		dpg.set_value("error_check_progress_text", message)
+		dpg.set_value("error_check_progress_bar", progress_value)
+		dpg.configure_item("error_check_progress_bar", overlay=overlay)
 
 	def clear_display_textures():
 		global frame, full_page, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h
@@ -253,25 +300,41 @@ if __name__ == '__main__':
 		set_export_buttons_enabled(False)
 
 	def update_queue_ui():
-		global queue_display_map
+		global queue_error_map
+		global queue_error_scan_has_run
 		global last_failed_file
-		if not dpg.does_item_exist("queue_list"):
+		if not dpg.does_item_exist("queue_list_container"):
 			return
 
-		queue_display_map = {}
-		queue_items = []
+		dpg.delete_item("queue_list_container", children_only=True)
+		error_count = 0
 		for idx, p in enumerate(reversed(fileList), start=1):
 			is_current = (filename is not None and p == filename)
+			is_error = p in queue_error_map
 			prefix = "* " if is_current else "  "
 			label = f"{prefix}{idx:03d} | {Path(p).name}"
-			queue_display_map[label] = p
-			queue_items.append(label)
+			button_tag = f"queue_item_{idx}_{abs(hash(p))}"
+			dpg.add_button(
+				label=label,
+				tag=button_tag,
+				parent="queue_list_container",
+				width=-1,
+				callback=on_queue_file_selected,
+				user_data=p,
+			)
+			if is_error:
+				error_count += 1
+				dpg.bind_item_theme(button_tag, "queue_error_theme")
+			elif is_current:
+				dpg.bind_item_theme(button_tag, "queue_current_theme")
 
-		if not queue_items:
-			queue_items = ["<queue empty>"]
+		if len(fileList) == 0:
+			dpg.add_button(label="<queue empty>", parent="queue_list_container", width=-1, enabled=False)
 
-		dpg.configure_item("queue_list", items=queue_items)
-		dpg.set_value("queue_count_text", f"Queue: {len(fileList)} file(s)")
+		if queue_error_scan_has_run:
+			dpg.set_value("queue_count_text", f"Queue: {len(fileList)} file(s) | Errors: {error_count}")
+		else:
+			dpg.set_value("queue_count_text", f"Queue: {len(fileList)} file(s)")
 		if filename:
 			current_label = Path(filename).name
 		elif last_failed_file:
@@ -293,6 +356,7 @@ if __name__ == '__main__':
 		global to_process_data_folder
 		global filename
 		global last_failed_file
+		global queue_error_map
 		had_empty_state = (len(fileList) == 0 and filename is None)
 
 		if not to_process_data_folder.exists():
@@ -310,6 +374,7 @@ if __name__ == '__main__':
 
 		disk_set = set(disk_files)
 		old_set = set(fileList)
+		queue_error_map = {p: message for p, message in queue_error_map.items() if p in disk_set}
 
 		removed_files = [p for p in fileList if p not in disk_set]
 		added_files = [p for p in disk_files if p not in old_set]
@@ -341,7 +406,7 @@ if __name__ == '__main__':
 			if len(fileList) > 0:
 				load_file(fileList[-1])
 			else:
-				set_status("Current file removed and queue is now empty.")
+				set_status("Current file removed and queue is now empty.")	
 
 		# If we were empty and new files appeared, auto-load the top-of-stack file.
 		if had_empty_state and len(fileList) > 0 and filename is None:
@@ -349,15 +414,20 @@ if __name__ == '__main__':
 
 	def apply_scan_directory_and_refresh(sender, app_data):
 		global to_process_data_folder
+		global queue_error_map
+		global queue_error_scan_has_run
 		new_dir = Path(dpg.get_value("scan_dir_input")).expanduser()
 		to_process_data_folder = new_dir
 		if not to_process_data_folder.exists():
 			to_process_data_folder.mkdir(parents=True, exist_ok=True)
+		queue_error_map = {}
+		queue_error_scan_has_run = False
+		set_error_check_progress(0, 0, is_running=False)
 		set_status(f"Using scan directory: {to_process_data_folder}")
 		refresh_file_queue()
 
 	def load_file(candidate):
-		global filename, last_failed_file, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page
+		global filename, last_failed_file, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page, queue_error_map
 
 		if not Path(candidate).exists():
 			set_status(f"File no longer exists: {Path(candidate).name}")
@@ -371,6 +441,7 @@ if __name__ == '__main__':
 		try:
 			filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False, config_name=CONFIG_FILE_NAME)
 		except Exception as e:
+			queue_error_map[candidate] = str(e)
 			set_status(f"Error reading {Path(filename).name}: {e}")
 			show_error_state(f"{Path(filename).name}: {e}")
 			last_failed_file = candidate
@@ -379,6 +450,7 @@ if __name__ == '__main__':
 			return False
 
 		last_failed_file = None
+		queue_error_map.pop(candidate, None)
 
 		cell_data = np.zeros((ROWS, COLS), dtype=np.uint8)
 		for (r, c) in filled_cells:
@@ -400,17 +472,75 @@ if __name__ == '__main__':
 			set_status(f"Loaded: {Path(filename).name}")
 		return True
 
-	def on_queue_file_selected(sender, app_data):
-		selected_label = dpg.get_value("queue_list")
-		if not selected_label or selected_label == "<queue empty>":
-			return
-
-		selected_path = queue_display_map.get(selected_label)
+	def on_queue_file_selected(sender, app_data, user_data):
+		selected_path = user_data
 		if not selected_path:
-			set_status("Selected file could not be resolved. Refresh queue.")
 			return
 
 		load_file(selected_path)
+
+	def error_check_all_queued_files(sender=None, app_data=None):
+		global queue_error_map
+		global queue_error_scan_has_run
+
+		if len(fileList) == 0:
+			set_error_check_progress(0, 0, is_running=False)
+			set_status("Queue is empty. Nothing to error-check.")
+			return
+
+		checked_paths = list(fileList)
+		failed_paths = []
+		queue_error_scan_has_run = True
+		set_error_check_button_enabled(False)
+		set_error_check_progress(0, len(checked_paths), is_running=True)
+		set_status(f"Starting error check for {len(checked_paths)} queued file(s)...")
+		refresh_ui_frame()
+
+		try:
+			for index, candidate in enumerate(checked_paths, start=1):
+				set_error_check_progress(index, len(checked_paths), current_file=candidate, is_running=True)
+				set_status(f"Checking file {index} / {len(checked_paths)}: {Path(candidate).name}")
+				refresh_ui_frame()
+
+				if not Path(candidate).exists():
+					queue_error_map[candidate] = "File no longer exists"
+					failed_paths.append(candidate)
+					continue
+
+				try:
+					grader.grade_score_form(candidate, show_plots=False, config_name=CONFIG_FILE_NAME)
+				except Exception as e:
+					queue_error_map[candidate] = str(e)
+					failed_paths.append(candidate)
+				else:
+					queue_error_map.pop(candidate, None)
+		finally:
+			update_queue_ui()
+			set_error_check_button_enabled(True)
+
+		if failed_paths:
+			failed_names = ", ".join(Path(p).name for p in failed_paths[:3])
+			if len(failed_paths) > 3:
+				failed_names += ", ..."
+			completion_message = (
+				f"Error check complete: {len(failed_paths)} of {len(checked_paths)} queued file(s) failed. {failed_names}"
+			)
+			set_status(completion_message)
+			set_error_check_progress(
+				len(checked_paths),
+				len(checked_paths),
+				is_running=False,
+				status_label=f"Completed: {len(failed_paths)} failed of {len(checked_paths)} checked",
+			)
+		else:
+			completion_message = f"Error check complete: all {len(checked_paths)} queued file(s) loaded successfully."
+			set_status(completion_message)
+			set_error_check_progress(
+				len(checked_paths),
+				len(checked_paths),
+				is_running=False,
+				status_label=f"Completed: all {len(checked_paths)} files passed",
+			)
 
 	def to_rgb_texture(image_bgr, width, height):
 		img = image_bgr
@@ -1068,7 +1198,7 @@ if __name__ == '__main__':
 		
 
 	def export_to_csv(sender, callback):
-		global amountZT, triesZT, filename, last_failed_file, per_boulder_ZT
+		global amountZT, triesZT, filename, last_failed_file, per_boulder_ZT, queue_error_map
 		if filename is None:
 			set_status("No active file to export.")
 			return
@@ -1097,6 +1227,7 @@ if __name__ == '__main__':
 		Path(filename).rename(moved_file_name)
 		if filename in fileList:
 			fileList.remove(filename)
+		queue_error_map.pop(str(file_path), None)
 		filename = None
 		last_failed_file = None
 
@@ -1105,7 +1236,7 @@ if __name__ == '__main__':
 		get_next_file(False)
 
 	def export_to_ground_truth(sender, callback):
-		global cell_data, filename, last_failed_file
+		global cell_data, filename, last_failed_file, queue_error_map
 		if filename is None:
 			set_status("No active file to export.")
 			return
@@ -1131,6 +1262,7 @@ if __name__ == '__main__':
 		Path(filename).rename(moved_file_name)
 		if filename in fileList:
 			fileList.remove(filename)
+		queue_error_map.pop(str(Path(filename)), None)
 		filename = None
 		last_failed_file = None
 
@@ -1179,9 +1311,14 @@ if __name__ == '__main__':
 							dpg.add_button(label="Apply + Refresh", callback=apply_scan_directory_and_refresh)
 							dpg.add_button(label="Refresh Queue", callback=refresh_file_queue)
 							dpg.add_text("Queue: 0 file(s)", tag="queue_count_text")
-							dpg.add_text("Current: -", tag="current_file_text")
 							dpg.add_text("Ready", tag="scan_status_text", wrap=240)
-							dpg.add_listbox([], tag="queue_list", num_items=10, width=240, callback=on_queue_file_selected)
+							dpg.add_text("Current: -", tag="current_file_text")
+							with dpg.child_window(tag="queue_list_container", width=240, height=220, border=True):
+								pass
+							dpg.add_spacer(height=12)
+							dpg.add_button(label="Error check ALL (will stall UI)", tag="error_check_all_button", callback=error_check_all_queued_files)
+							dpg.add_text("Error check idle", tag="error_check_progress_text", wrap=240)
+							dpg.add_progress_bar(default_value=0.0, tag="error_check_progress_bar", width=240, overlay="0 / 0")
 			with dpg.table_row():
 				with dpg.table_cell():
 					dpg.add_image("name_texture")

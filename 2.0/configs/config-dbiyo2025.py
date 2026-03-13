@@ -5,7 +5,8 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 # Path to the directory holding scanned files.
-SCANNED_FILES_DIR = BASE_DIR / "process_data" / "to_process"
+# SCANNED_FILES_DIR = BASE_DIR / "process_data" / "to_process"
+SCANNED_FILES_DIR = BASE_DIR / "test_forms" / "new-26-02-2026" / "dbiyo-2025"
 
 # Processing output locations.
 PROCESSED_FILES_DIR = BASE_DIR / "process_data" / "processed"
