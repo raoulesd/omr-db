@@ -1,6 +1,9 @@
+import difflib
 import os
+import re
 import shutil
 import textwrap
+import uuid
 from pathlib import Path
 import dearpygui.dearpygui as dpg
 import cv2 as cv
@@ -17,13 +20,26 @@ except ImportError:
 COLUMNS = 9
 ROWS = 20
 ANSWERS = 3
-CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-dbiyo2026")
+CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-dbiyo2025")
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 TESSERACT_ENV_VAR = "TESSERACT_CMD"
 COMMON_TESSERACT_PATHS = (
 	r"C:\Program Files\Tesseract-OCR\tesseract.exe",
 	r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
 )
+OCR_GENDER_CHAR_SUBS = str.maketrans({
+	"0": "O",
+	"1": "I",
+	"3": "E",
+	"4": "A",
+	"5": "S",
+	"6": "G",
+	"7": "T",
+	"8": "B",
+	"9": "G",
+	"|": "I",
+	"!": "I",
+})
 
 
 def resolve_tesseract_cmd():
@@ -54,6 +70,31 @@ def normalize_ocr_name(text):
 
 	return " ".join("".join(cleaned_chars).split()).strip()
 
+
+def extract_contestant_number(text):
+	digit_groups = re.findall(r"\d+", text.replace("\n", " ").replace("\f", " "))
+	if not digit_groups:
+		return ""
+	return max(digit_groups, key=len)
+
+
+def tokenize_gender_ocr(text):
+	normalized = text.upper().translate(OCR_GENDER_CHAR_SUBS).replace("\n", " ").replace("\f", " ")
+	cleaned_chars = []
+	for char in normalized:
+		cleaned_chars.append(char if char.isalpha() else " ")
+	return [token for token in "".join(cleaned_chars).split() if token]
+
+
+def detect_gender_from_ocr_texts(text_candidates):
+	joined = ""
+	for raw in text_candidates:
+		joined += "".join(tokenize_gender_ocr(raw))
+
+	if "F" in joined:
+		return False
+	return True
+
 if __name__ == '__main__':
 
 	cfg = app_config.set_active_config(CONFIG_FILE_NAME)
@@ -64,6 +105,8 @@ if __name__ == '__main__':
 	processed_data_folder = Path(cfg.PROCESSED_FILES_DIR)
 	to_process_data_folder = Path(cfg.SCANNED_FILES_DIR)
 	errored_data_folder = Path(cfg.ERRORED_FILES_DIR)
+	instance_id = f"{os.getpid():x}{uuid.uuid4().hex[:2]}"
+	processing_data_folder = to_process_data_folder.parent / f"processing_{instance_id}"
 	results_csv_path = Path(cfg.RESULTS_CSV_PATH)
 	ui_areas = cfg.UI_AREAS
 
@@ -76,18 +119,26 @@ if __name__ == '__main__':
 
 	zones_and_tops_width = cfg.ZONES_AND_TOPS_WIDTH
 	zones_and_tops_height = cfg.ZONES_AND_TOPS_HEIGHT
+	zones_and_tops_left_padding = 48
 	# Display zones/tops at main-frame height while keeping its original aspect ratio.
 	zones_and_tops_display_height = frame_height
-	zones_and_tops_display_width = max(
+	zones_and_tops_base_display_width = max(
 		1,
 		int(round(zones_and_tops_width * (zones_and_tops_display_height / float(max(1, zones_and_tops_height)))))
 	)
-	side_panel_width = max(zones_and_tops_display_width, attempt_totals_width)
+	zones_and_tops_display_width = zones_and_tops_base_display_width + zones_and_tops_left_padding
+	controls_panel_width = 280
+	controls_panel_gap = 16
+	side_panel_width = max(zones_and_tops_display_width + controls_panel_gap + controls_panel_width, attempt_totals_width)
 
 	name_data_width = cfg.NAME_DATA_WIDTH
 	name_data_height = cfg.NAME_DATA_HEIGHT
 
-	paths = [processed_data_folder, to_process_data_folder, errored_data_folder]
+	category_data_width = getattr(cfg, "CATEGORY_DATA_WIDTH", 0)
+	category_data_height = getattr(cfg, "CATEGORY_DATA_HEIGHT", 0)
+	has_category_area = "category" in ui_areas and category_data_width > 0 and category_data_height > 0
+
+	paths = [processed_data_folder, to_process_data_folder, errored_data_folder, processing_data_folder]
 	for p in paths:
 		if not p.exists():
 			p.mkdir(parents=True, exist_ok=True)
@@ -97,7 +148,8 @@ if __name__ == '__main__':
 	fileList = []
 	filename = None
 	last_failed_file = None
-	queue_display_map = {}
+	queue_error_map = {}
+	queue_error_scan_has_run = False
 
 	# Safe defaults so UI can boot even when queue is empty.
 	frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
@@ -113,6 +165,7 @@ if __name__ == '__main__':
 	texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
 	zones_and_tops_texture_data = np.zeros((zones_and_tops_display_height * zones_and_tops_display_width * 3,), dtype=np.float32)
 	name_texture_data = np.zeros((name_data_height * name_data_width * 3,), dtype=np.float32)
+	category_texture_data = np.zeros((max(1, category_data_height) * max(1, category_data_width) * 3,), dtype=np.float32)
 	attempts_total_data = np.zeros((attempt_totals_height * attempt_totals_width * 3,), dtype=np.float32)
 	debug_texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
 	debug_steps_cache = []
@@ -128,10 +181,170 @@ if __name__ == '__main__':
 	dpg.create_viewport(title='Review scores', width=1400, height=1000)
 	dpg.setup_dearpygui()
 
+	with dpg.theme(tag="queue_error_theme"):
+		with dpg.theme_component(dpg.mvButton):
+			dpg.add_theme_color(dpg.mvThemeCol_Button, (140, 45, 45, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (170, 60, 60, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (120, 35, 35, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 235, 235, 255))
+
+	with dpg.theme(tag="queue_current_theme"):
+		with dpg.theme_component(dpg.mvButton):
+			dpg.add_theme_color(dpg.mvThemeCol_Button, (45, 95, 135, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (60, 120, 165, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (35, 75, 110, 255))
+
+	with dpg.theme(tag="ocr_status_red_theme"):
+		with dpg.theme_component(dpg.mvInputText):
+			dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (60, 40, 40, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 235, 235, 255))
+
+	with dpg.theme(tag="ocr_status_yellow_theme"):
+		with dpg.theme_component(dpg.mvInputText):
+			dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (60, 55, 40, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 245, 210, 255))
+
+	with dpg.theme(tag="ocr_status_green_theme"):
+		with dpg.theme_component(dpg.mvInputText):
+			dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (40, 60, 45, 255))
+			dpg.add_theme_color(dpg.mvThemeCol_Text, (225, 255, 235, 255))
+
+	def set_ocr_status_bar(state):
+		if not dpg.does_item_exist("ocr_population_status_text"):
+			return
+
+		if state == "in_progress":
+			dpg.bind_item_theme("ocr_population_status_text", "ocr_status_red_theme")
+		elif state == "success":
+			dpg.bind_item_theme("ocr_population_status_text", "ocr_status_green_theme")
+		else:
+			dpg.bind_item_theme("ocr_population_status_text", "ocr_status_yellow_theme")
+
 	def set_status(message):
 		if dpg.does_item_exist("scan_status_text"):
 			dpg.set_value("scan_status_text", message)
 		print(message)
+
+	def move_file_to_folder(source_path, target_folder):
+		target_folder.mkdir(parents=True, exist_ok=True)
+		source = Path(source_path)
+		candidate = target_folder / source.name
+		if not candidate.exists():
+			source.rename(candidate)
+			return candidate
+
+		counter = 1
+		while True:
+			candidate = target_folder / f"{source.stem}__{counter}{source.suffix}"
+			if not candidate.exists():
+				source.rename(candidate)
+				return candidate
+			counter += 1
+
+	def claim_file_for_instance(candidate):
+		source = Path(candidate)
+		if not source.exists():
+			return None, "File no longer exists (possibly claimed by another instance)."
+
+		processing_data_folder.mkdir(parents=True, exist_ok=True)
+		claimed = processing_data_folder / source.name
+		if claimed.exists():
+			return None, f"Could not claim file: claim target already exists ({claimed.name})"
+
+		try:
+			source.rename(claimed)
+		except Exception as e:
+			return None, f"Could not claim file: {e}"
+
+		return str(claimed), None
+
+	def release_current_file_to_queue():
+		global filename
+		if filename is None:
+			return True
+
+		current_path = Path(filename)
+		if not current_path.exists():
+			filename = None
+			return True
+
+		try:
+			restored_path = move_file_to_folder(current_path, to_process_data_folder)
+		except Exception as e:
+			set_status(f"Could not put back current file {current_path.name}: {e}")
+			return False
+
+		set_status(f"Returned unexported file to queue: {restored_path.name}")
+		filename = None
+		return True
+
+	def restore_processing_folder_on_exit():
+		if not processing_data_folder.exists():
+			return
+
+		moved_count = 0
+		failed = []
+		for p in sorted(processing_data_folder.iterdir()):
+			if not p.is_file():
+				continue
+			try:
+				move_file_to_folder(p, to_process_data_folder)
+				moved_count += 1
+			except Exception as e:
+				failed.append(f"{p.name}: {e}")
+
+		if moved_count:
+			print(f"Returned {moved_count} file(s) from {processing_data_folder.name} to {to_process_data_folder}")
+
+		if failed:
+			print("Could not restore some files from processing folder:")
+			for message in failed:
+				print(f" - {message}")
+
+		try:
+			processing_data_folder.rmdir()
+			print(f"Removed processing folder: {processing_data_folder}")
+		except OSError:
+			# Folder may still contain files/subfolders when restoration fails.
+			pass
+
+	def set_ocr_population_status(message):
+		if dpg.does_item_exist("ocr_population_status_text"):
+			dpg.set_value("ocr_population_status_text", message)
+
+	def update_ocr_population_status(name_value, name_status, category_values=None, category_status=None):
+		missing_fields = []
+		if not name_value:
+			missing_fields.append("name")
+
+		if has_category_area:
+			is_male_value = None
+			age_cat_value = None
+			if category_values is not None:
+				is_male_value, age_cat_value = category_values
+			if is_male_value is None:
+				missing_fields.append("gender")
+			if not age_cat_value:
+				missing_fields.append("age")
+
+		if missing_fields:
+			base_message = f"OCR autofill partial (missing: {', '.join(missing_fields)})"
+		else:
+			base_message = "OCR autofill complete"
+
+		notes = []
+		if name_status:
+			notes.append(name_status)
+		if has_category_area and category_status:
+			notes.append(category_status)
+		if notes:
+			base_message = f"{base_message} | {'; '.join(notes)}"
+
+		set_ocr_population_status(base_message)
+		if missing_fields or notes:
+			set_ocr_status_bar("warning")
+		else:
+			set_ocr_status_bar("success")
 
 	def set_export_buttons_enabled(enabled):
 		if dpg.does_item_exist("export_button"):
@@ -142,6 +355,39 @@ if __name__ == '__main__':
 	def set_debug_button_enabled(enabled):
 		if dpg.does_item_exist("show_debug_button"):
 			dpg.configure_item("show_debug_button", enabled=enabled)
+
+	def set_error_check_button_enabled(enabled):
+		if dpg.does_item_exist("error_check_all_button"):
+			dpg.configure_item("error_check_all_button", enabled=enabled)
+
+	def refresh_ui_frame():
+		if dpg.is_dearpygui_running():
+			dpg.split_frame(delay=1)
+
+	def set_error_check_progress(current, total, current_file=None, is_running=False, status_label=None):
+		if not dpg.does_item_exist("error_check_progress_text"):
+			return
+
+		if total <= 0:
+			progress_value = 0.0
+			overlay = "0 / 0"
+		else:
+			progress_value = max(0.0, min(1.0, current / float(total)))
+			overlay = f"{current} / {total}"
+
+		if status_label is not None:
+			message = status_label
+		elif is_running:
+			if current_file:
+				message = f"Checking {current} / {total}: {Path(current_file).name}"
+			else:
+				message = f"Checking {current} / {total}"
+		else:
+			message = "Error check idle"
+
+		dpg.set_value("error_check_progress_text", message)
+		dpg.set_value("error_check_progress_bar", progress_value)
+		dpg.configure_item("error_check_progress_bar", overlay=overlay)
 
 	def clear_display_textures():
 		global frame, full_page, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h
@@ -160,8 +406,12 @@ if __name__ == '__main__':
 			dpg.set_value("zones_and_tops_texture", np.zeros((zones_and_tops_display_height * zones_and_tops_display_width * 3,), dtype=np.float32))
 		if dpg.does_item_exist("name_texture"):
 			dpg.set_value("name_texture", np.zeros((name_data_height * name_data_width * 3,), dtype=np.float32))
+		if dpg.does_item_exist("category_texture"):
+			dpg.set_value("category_texture", np.zeros((max(1, category_data_height) * max(1, category_data_width) * 3,), dtype=np.float32))
 		if dpg.does_item_exist("attempts_total_texture"):
 			dpg.set_value("attempts_total_texture", np.zeros((attempt_totals_height * attempt_totals_width * 3,), dtype=np.float32))
+		set_ocr_population_status("OCR autofill idle")
+		set_ocr_status_bar("warning")
 
 	def _render_message_image(width, height, title, subtitle=None, bg_color=(0, 0, 0), title_color=(255, 255, 255), subtitle_color=(200, 200, 200)):
 		img = np.zeros((height, width, 3), dtype=np.uint8)
@@ -223,9 +473,14 @@ if __name__ == '__main__':
 		_set_texture_if_exists("texture_tag", main_msg, frame_width, frame_height)
 		_set_texture_if_exists("zones_and_tops_texture", side_msg, zones_and_tops_display_width, zones_and_tops_display_height)
 		_set_texture_if_exists("name_texture", name_msg, name_data_width, name_data_height)
+		if has_category_area:
+			cat_msg = _render_message_image(category_data_width, category_data_height, "...", bg_color=(25, 25, 25))
+			_set_texture_if_exists("category_texture", cat_msg, category_data_width, category_data_height)
 		_set_texture_if_exists("attempts_total_texture", attempt_msg, attempt_totals_width, attempt_totals_height)
 
 		set_export_buttons_enabled(False)
+		set_ocr_population_status("OCR autofill in progress...")
+		set_ocr_status_bar("in_progress")
 
 	def show_error_state(error_message):
 		error_main = _render_message_image(
@@ -244,30 +499,51 @@ if __name__ == '__main__':
 		_set_texture_if_exists("texture_tag", error_main, frame_width, frame_height)
 		_set_texture_if_exists("zones_and_tops_texture", black_side, zones_and_tops_display_width, zones_and_tops_display_height)
 		_set_texture_if_exists("name_texture", black_name, name_data_width, name_data_height)
+		if has_category_area:
+			black_cat = np.zeros((category_data_height, category_data_width, 3), dtype=np.uint8)
+			_set_texture_if_exists("category_texture", black_cat, category_data_width, category_data_height)
 		_set_texture_if_exists("attempts_total_texture", black_attempt, attempt_totals_width, attempt_totals_height)
 
 		set_export_buttons_enabled(False)
+		set_ocr_population_status("OCR autofill not completed (processing error)")
+		set_ocr_status_bar("warning")
 
 	def update_queue_ui():
-		global queue_display_map
+		global queue_error_map
+		global queue_error_scan_has_run
 		global last_failed_file
-		if not dpg.does_item_exist("queue_list"):
+		if not dpg.does_item_exist("queue_list_container"):
 			return
 
-		queue_display_map = {}
-		queue_items = []
+		dpg.delete_item("queue_list_container", children_only=True)
+		error_count = 0
 		for idx, p in enumerate(reversed(fileList), start=1):
 			is_current = (filename is not None and p == filename)
+			is_error = p in queue_error_map
 			prefix = "* " if is_current else "  "
 			label = f"{prefix}{idx:03d} | {Path(p).name}"
-			queue_display_map[label] = p
-			queue_items.append(label)
+			button_tag = f"queue_item_{idx}_{abs(hash(p))}"
+			dpg.add_button(
+				label=label,
+				tag=button_tag,
+				parent="queue_list_container",
+				width=-1,
+				callback=on_queue_file_selected,
+				user_data=p,
+			)
+			if is_error:
+				error_count += 1
+				dpg.bind_item_theme(button_tag, "queue_error_theme")
+			elif is_current:
+				dpg.bind_item_theme(button_tag, "queue_current_theme")
 
-		if not queue_items:
-			queue_items = ["<queue empty>"]
+		if len(fileList) == 0:
+			dpg.add_button(label="<queue empty>", parent="queue_list_container", width=-1, enabled=False)
 
-		dpg.configure_item("queue_list", items=queue_items)
-		dpg.set_value("queue_count_text", f"Queue: {len(fileList)} file(s)")
+		if queue_error_scan_has_run:
+			dpg.set_value("queue_count_text", f"Queue: {len(fileList)} file(s) | Errors: {error_count}")
+		else:
+			dpg.set_value("queue_count_text", f"Queue: {len(fileList)} file(s)")
 		if filename:
 			current_label = Path(filename).name
 		elif last_failed_file:
@@ -289,6 +565,7 @@ if __name__ == '__main__':
 		global to_process_data_folder
 		global filename
 		global last_failed_file
+		global queue_error_map
 		had_empty_state = (len(fileList) == 0 and filename is None)
 
 		if not to_process_data_folder.exists():
@@ -306,6 +583,7 @@ if __name__ == '__main__':
 
 		disk_set = set(disk_files)
 		old_set = set(fileList)
+		queue_error_map = {p: message for p, message in queue_error_map.items() if p in disk_set}
 
 		removed_files = [p for p in fileList if p not in disk_set]
 		added_files = [p for p in disk_files if p not in old_set]
@@ -315,12 +593,15 @@ if __name__ == '__main__':
 		fileList.extend(added_files)
 
 		current_removed = False
-		if filename is not None and filename not in disk_set:
-			set_status(f"Current file was removed: {Path(filename).name}")
-			filename = None
-			current_removed = True
+		if filename is not None:
+			current_path = Path(filename)
+			# Current file may be in this instance's processing folder and should remain active.
+			if not current_path.exists():
+				set_status(f"Current file was removed: {current_path.name}")
+				filename = None
+				current_removed = True
 
-		if last_failed_file is not None and last_failed_file not in disk_set:
+		if last_failed_file is not None and not Path(last_failed_file).exists():
 			last_failed_file = None
 
 		update_queue_ui()
@@ -337,7 +618,7 @@ if __name__ == '__main__':
 			if len(fileList) > 0:
 				load_file(fileList[-1])
 			else:
-				set_status("Current file removed and queue is now empty.")
+				set_status("Current file removed and queue is now empty.")	
 
 		# If we were empty and new files appeared, auto-load the top-of-stack file.
 		if had_empty_state and len(fileList) > 0 and filename is None:
@@ -345,36 +626,67 @@ if __name__ == '__main__':
 
 	def apply_scan_directory_and_refresh(sender, app_data):
 		global to_process_data_folder
+		global processing_data_folder
+		global queue_error_map
+		global queue_error_scan_has_run
 		new_dir = Path(dpg.get_value("scan_dir_input")).expanduser()
 		to_process_data_folder = new_dir
+		processing_data_folder = to_process_data_folder.parent / f"processing_{instance_id}"
 		if not to_process_data_folder.exists():
 			to_process_data_folder.mkdir(parents=True, exist_ok=True)
-		set_status(f"Using scan directory: {to_process_data_folder}")
+		if not processing_data_folder.exists():
+			processing_data_folder.mkdir(parents=True, exist_ok=True)
+		queue_error_map = {}
+		queue_error_scan_has_run = False
+		set_error_check_progress(0, 0, is_running=False)
+		set_status(f"Using scan directory: {to_process_data_folder} | Instance claim folder: {processing_data_folder.name}")
 		refresh_file_queue()
 
 	def load_file(candidate):
-		global filename, last_failed_file, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page
+		global filename, last_failed_file, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page, queue_error_map
 
 		if not Path(candidate).exists():
-			set_status(f"File no longer exists: {Path(candidate).name}")
+			set_status(f"File no longer exists in queue: {Path(candidate).name}")
 			if candidate in fileList:
 				fileList.remove(candidate)
 			update_queue_ui()
 			return False
 
-		filename = candidate
-		show_loading_state(candidate)
+		claimed_path, claim_error = claim_file_for_instance(candidate)
+		if claim_error:
+			set_status(f"Could not load {Path(candidate).name}: {claim_error}")
+			if candidate in fileList:
+				fileList.remove(candidate)
+			refresh_file_queue()
+			return False
+
+		if candidate in fileList:
+			fileList.remove(candidate)
+
+		filename = claimed_path
+		show_loading_state(filename)
 		try:
 			filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False, config_name=CONFIG_FILE_NAME)
 		except Exception as e:
-			set_status(f"Error reading {Path(filename).name}: {e}")
-			show_error_state(f"{Path(filename).name}: {e}")
-			last_failed_file = candidate
+			failed_path = Path(filename)
+			queue_error_map.pop(candidate, None)
+			try:
+				moved_failed_path = move_file_to_folder(failed_path, errored_data_folder)
+			except Exception as move_error:
+				set_status(f"Error reading {failed_path.name}: {e} | Could not move to errored: {move_error}")
+				show_error_state(f"{failed_path.name}: {e}")
+				last_failed_file = str(failed_path)
+			else:
+				set_status(f"Error reading {failed_path.name}: {e} | Moved to errored: {moved_failed_path.name}")
+				show_error_state(f"{failed_path.name}: {e}")
+				last_failed_file = str(moved_failed_path)
 			filename = None
-			update_queue_ui()
+			refresh_file_queue()
 			return False
 
 		last_failed_file = None
+		queue_error_map.pop(candidate, None)
+		queue_error_map.pop(filename, None)
 
 		cell_data = np.zeros((ROWS, COLS), dtype=np.uint8)
 		for (r, c) in filled_cells:
@@ -385,7 +697,13 @@ if __name__ == '__main__':
 		frame = warped_u8
 
 		draw_data()
-		ocr_name, ocr_status = autofill_name_from_frame(full_page)
+		ocr_name, contestant_number, ocr_status = autofill_name_from_frame(full_page)
+		category_values = None
+		category_status = None
+		if has_category_area:
+			is_male_value, age_cat_value, category_status = autofill_category_from_frame(full_page)
+			category_values = (is_male_value, age_cat_value)
+		update_ocr_population_status(ocr_name, ocr_status, category_values, category_status)
 		update_queue_ui()
 		set_export_buttons_enabled(True)
 		if ocr_name:
@@ -396,17 +714,80 @@ if __name__ == '__main__':
 			set_status(f"Loaded: {Path(filename).name}")
 		return True
 
-	def on_queue_file_selected(sender, app_data):
-		selected_label = dpg.get_value("queue_list")
-		if not selected_label or selected_label == "<queue empty>":
+	def on_queue_file_selected(sender, app_data, user_data):
+		selected_path = user_data
+		if not selected_path:
 			return
 
-		selected_path = queue_display_map.get(selected_label)
-		if not selected_path:
-			set_status("Selected file could not be resolved. Refresh queue.")
-			return
+		if filename is not None:
+			if not release_current_file_to_queue():
+				return
+			refresh_file_queue()
 
 		load_file(selected_path)
+
+	def error_check_all_queued_files(sender=None, app_data=None):
+		global queue_error_map
+		global queue_error_scan_has_run
+
+		if len(fileList) == 0:
+			set_error_check_progress(0, 0, is_running=False)
+			set_status("Queue is empty. Nothing to error-check.")
+			return
+
+		checked_paths = list(fileList)
+		failed_paths = []
+		queue_error_scan_has_run = True
+		set_error_check_button_enabled(False)
+		set_error_check_progress(0, len(checked_paths), is_running=True)
+		set_status(f"Starting error check for {len(checked_paths)} queued file(s)...")
+		refresh_ui_frame()
+
+		try:
+			for index, candidate in enumerate(checked_paths, start=1):
+				set_error_check_progress(index, len(checked_paths), current_file=candidate, is_running=True)
+				set_status(f"Checking file {index} / {len(checked_paths)}: {Path(candidate).name}")
+				refresh_ui_frame()
+
+				if not Path(candidate).exists():
+					queue_error_map[candidate] = "File no longer exists"
+					failed_paths.append(candidate)
+					continue
+
+				try:
+					grader.grade_score_form(candidate, show_plots=False, config_name=CONFIG_FILE_NAME)
+				except Exception as e:
+					queue_error_map[candidate] = str(e)
+					failed_paths.append(candidate)
+				else:
+					queue_error_map.pop(candidate, None)
+		finally:
+			update_queue_ui()
+			set_error_check_button_enabled(True)
+
+		if failed_paths:
+			failed_names = ", ".join(Path(p).name for p in failed_paths[:3])
+			if len(failed_paths) > 3:
+				failed_names += ", ..."
+			completion_message = (
+				f"Error check complete: {len(failed_paths)} of {len(checked_paths)} queued file(s) failed. {failed_names}"
+			)
+			set_status(completion_message)
+			set_error_check_progress(
+				len(checked_paths),
+				len(checked_paths),
+				is_running=False,
+				status_label=f"Completed: {len(failed_paths)} failed of {len(checked_paths)} checked",
+			)
+		else:
+			completion_message = f"Error check complete: all {len(checked_paths)} queued file(s) loaded successfully."
+			set_status(completion_message)
+			set_error_check_progress(
+				len(checked_paths),
+				len(checked_paths),
+				is_running=False,
+				status_label=f"Completed: all {len(checked_paths)} files passed",
+			)
 
 	def to_rgb_texture(image_bgr, width, height):
 		img = image_bgr
@@ -804,6 +1185,8 @@ if __name__ == '__main__':
 		draw_frame(frame)
 		draw_zones_and_tops(full_page)
 		draw_name_data(full_page)
+		if has_category_area:
+			draw_category_data(full_page)
 		draw_attempts_total(full_page)
 
 
@@ -815,8 +1198,15 @@ if __name__ == '__main__':
 		x_max = int(x_ratio_max * frame.shape[1])
 
 		cutout = frame[y_min:y_max, x_min:x_max]
+		resized_cutout = cv2.resize(
+			cutout,
+			(zones_and_tops_base_display_width, zones_and_tops_display_height),
+			interpolation=cv2.INTER_LINEAR,
+		)
 
-		return cv2.resize(cutout, (zones_and_tops_display_width, zones_and_tops_display_height), interpolation=cv2.INTER_LINEAR)
+		canvas = np.full((zones_and_tops_display_height, zones_and_tops_display_width, 3), 255, dtype=np.uint8)
+		canvas[:, zones_and_tops_left_padding:zones_and_tops_left_padding + zones_and_tops_base_display_width] = resized_cutout
+		return canvas
 
 	def extract_attempts_total(frame):
 		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["attempts_total"]
@@ -853,33 +1243,137 @@ if __name__ == '__main__':
 
 	def read_name_from_image(frame):
 		if pytesseract is None:
-			return "", "name OCR unavailable: install pytesseract"
+			return "", "", "name OCR unavailable: install pytesseract"
 		if tesseract_cmd is None:
-			return "", f"name OCR unavailable: set {TESSERACT_ENV_VAR} or install Tesseract"
+			return "", "", f"name OCR unavailable: set {TESSERACT_ENV_VAR} or install Tesseract"
 
 		processed = preprocess_name_for_ocr(frame)
 		ocr_candidates = []
+		number_candidates = []
 		for config in ("--oem 3 --psm 7", "--oem 3 --psm 6"):
 			try:
-				candidate = normalize_ocr_name(pytesseract.image_to_string(processed, config=config))
+				raw = pytesseract.image_to_string(processed, config=config)
+				candidate = normalize_ocr_name(raw)
+				number_candidate = extract_contestant_number(raw)
 			except Exception as e:
 				print(f"Name OCR failed for {filename}: {e}")
-				return "", "name OCR failed"
+				return "", "", "name OCR failed"
 			if candidate:
 				ocr_candidates.append(candidate)
+			if number_candidate:
+				number_candidates.append(number_candidate)
 
 		if not ocr_candidates:
-			return "", "name OCR found no text"
+			return "", "", "name OCR found no text"
 
 		best_match = max(ocr_candidates, key=len)
-		return best_match, None
+		contestant_number = max(number_candidates, key=len) if number_candidates else ""
+		return best_match, contestant_number, None
 
 	def autofill_name_from_frame(frame):
 		name_crop = extract_name_area(frame)
-		ocr_name, ocr_status = read_name_from_image(name_crop)
+		ocr_name, contestant_number, ocr_status = read_name_from_image(name_crop)
 		if dpg.does_item_exist("user_name"):
 			dpg.set_value("user_name", ocr_name)
-		return ocr_name, ocr_status
+		if dpg.does_item_exist("contestant_number"):
+			dpg.set_value("contestant_number", contestant_number)
+		return ocr_name, contestant_number, ocr_status
+
+	def extract_category_area(frame):
+		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["category"]
+		y_min = int(y_ratio_min * frame.shape[0])
+		y_max = int(y_ratio_max * frame.shape[0])
+		x_min = int(x_ratio_min * frame.shape[1])
+		x_max = int(x_ratio_max * frame.shape[1])
+		cutout = frame[y_min:y_max, x_min:x_max]
+		return cv2.resize(cutout, (category_data_width, category_data_height), interpolation=cv2.INTER_LINEAR)
+
+	_AGE_CATEGORIES = ["U15", "U17", "U19", "U21"]
+
+	def read_category_from_image(frame):
+		"""Returns (is_male: bool|None, age_cat: str|None, status: str|None)."""
+		if pytesseract is None:
+			return None, None, "category OCR unavailable: install pytesseract"
+		if tesseract_cmd is None:
+			return None, None, f"category OCR unavailable: set {TESSERACT_ENV_VAR} or install Tesseract"
+
+		processed = preprocess_name_for_ocr(frame)
+		ocr_images = [
+			processed,
+			cv2.bitwise_not(processed),
+		]
+		char_whitelist = "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/ "
+		ocr_configs = (
+			f"--oem 3 --psm 6 {char_whitelist}",
+			f"--oem 3 --psm 7 {char_whitelist}",
+		)
+		ocr_texts = []
+
+		try:
+			for image in ocr_images:
+				for config in ocr_configs:
+					raw = pytesseract.image_to_string(image, config=config)
+					if raw and raw.strip():
+						ocr_texts.append(raw)
+		except Exception as e:
+			return None, None, f"category OCR failed: {e}"
+
+		if not ocr_texts:
+			return None, None, "category OCR found no text"
+
+		text_upper = "\n".join(ocr_texts).upper()
+		is_male = detect_gender_from_ocr_texts(ocr_texts)
+		gender_tokens = []
+		for raw in ocr_texts:
+			gender_tokens.extend(tokenize_gender_ocr(raw))
+
+		# Determine age category: exact substring match first, then closest word.
+		age_cat = None
+		for cat in _AGE_CATEGORIES:
+			if cat in text_upper:
+				age_cat = cat
+				break
+		if age_cat is None:
+			for word in text_upper.split():
+				matches = difflib.get_close_matches(word, _AGE_CATEGORIES, n=1, cutoff=0.6)
+				if matches:
+					age_cat = matches[0]
+					break
+
+		status = None
+		if is_male is None:
+			preview_tokens = gender_tokens[:8]
+			if preview_tokens:
+				status = f"gender OCR uncertain (detected: {' '.join(preview_tokens)})"
+			else:
+				status = "gender OCR uncertain (detected: no usable gender text)"
+
+		return is_male, age_cat, status
+
+	def autofill_category_from_frame(frame):
+		if not has_category_area:
+			return
+		cat_crop = extract_category_area(frame)
+		is_male, age_cat, status = read_category_from_image(cat_crop)
+		if is_male is not None and dpg.does_item_exist("is_male"):
+			dpg.set_value("is_male", is_male)
+		if age_cat is not None and dpg.does_item_exist("age_category"):
+			dpg.set_value("age_category", age_cat)
+		return is_male, age_cat, status
+
+	def draw_category_data(frame):
+		global category_texture_data
+		if not has_category_area:
+			return
+		frame = frame.copy()
+		frame = extract_category_area(frame)
+		try:
+			data = frame.flatten()
+			data = np.float32(data)
+			category_texture_data = np.true_divide(data, 255.0)
+			dpg.set_value("category_texture", category_texture_data)
+		except Exception as e:
+			print(f"Error drawing category data: {e}")
 
 	def draw_attempts_total(frame):
 		global attempts_total_data, amountZT, triesZT
@@ -936,13 +1430,15 @@ if __name__ == '__main__':
 		frame = frame.copy()
 
 		frame = extract_zones_and_tops_area(frame)
+		left_label_x = max(6, int(frame.shape[1] * 0.02))
 
 		# Write the zones and tops amounts on the frame
 		num_boulders = len(per_boulder_ZT)
 		for b in range(num_boulders):
-			zone_x = int(zones_and_tops_width * 1.1)
-			top_x = int(zones_and_tops_width * 1.3)
+			zone_x = int(zones_and_tops_width * 1.5)
+			top_x = int(zones_and_tops_width * 1.7)
 			y = int(((b+1) / num_boulders) * frame.shape[0] * 0.99)
+			cv2.putText(frame, str(b + 1), (left_label_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2)
 			(zone, top) = per_boulder_ZT[b]
 			if zone is not None:
 				cv2.putText(frame, str(zone), (zone_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
@@ -988,14 +1484,17 @@ if __name__ == '__main__':
 		global row_centers_sorted, col_centers_sorted, med_w, med_h
 
 		original_image = frame.copy()
+		left_label_x = max(6, int(med_w * 0.2))
 
 		num_rows = cell_data.shape[0]
 		num_cols = cell_data.shape[1]
 
 		for row in range(num_rows):
+			row_y = int(row_centers_sorted[row])
+			cv2.putText(original_image, str(row + 1), (left_label_x, row_y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
 			for col in range(num_cols):
 				x = int(col_centers_sorted[col])
-				y = int(row_centers_sorted[row])
+				y = row_y
 
 				# Draw a circle around the bubble
 				circle_color = (0, 255, 0) if cell_data[row, col] == 1 else (255, 0, 0)
@@ -1052,15 +1551,19 @@ if __name__ == '__main__':
 		
 
 	def export_to_csv(sender, callback):
-		global amountZT, triesZT, filename, last_failed_file, per_boulder_ZT
+		global amountZT, triesZT, filename, last_failed_file, per_boulder_ZT, queue_error_map
 		if filename is None:
 			set_status("No active file to export.")
 			return
 
 		name = dpg.get_value("user_name")
+		contestant_number = dpg.get_value("contestant_number") if dpg.does_item_exist("contestant_number") else ""
 		sex = "M" if dpg.get_value("is_male") else "V"
+		age_cat = dpg.get_value("age_category") if dpg.does_item_exist("age_category") else ""
 		exportString = f"{name},"
+		exportString += f"{contestant_number},"
 		exportString += f"{sex},"
+		exportString += f"{age_cat},"
 		file_path = Path(filename)
 		only_file_name = file_path.name
 		exportString += only_file_name
@@ -1076,20 +1579,22 @@ if __name__ == '__main__':
 		csvFile.write(f"{exportString}\n")
 		csvFile.flush()
 
-		# Move the png file
-		moved_file_name = processed_data_folder / only_file_name
-		Path(filename).rename(moved_file_name)
+		# Move the claimed source file out of this instance processing folder.
+		moved_file_name = move_file_to_folder(Path(filename), processed_data_folder)
 		if filename in fileList:
 			fileList.remove(filename)
+		queue_error_map.pop(str(file_path), None)
 		filename = None
 		last_failed_file = None
 
 		dpg.set_value("user_name", "")
+		if dpg.does_item_exist("contestant_number"):
+			dpg.set_value("contestant_number", "")
 		refresh_file_queue()
 		get_next_file(False)
 
 	def export_to_ground_truth(sender, callback):
-		global cell_data, filename, last_failed_file
+		global cell_data, filename, last_failed_file, queue_error_map
 		if filename is None:
 			set_status("No active file to export.")
 			return
@@ -1102,8 +1607,6 @@ if __name__ == '__main__':
 
 		pure_file_name = Path(filename).name
 
-		moved_file_name = processed_data_folder / pure_file_name
-
 		output_file_name = processed_data_folder / (Path(pure_file_name).stem + ".csv")
 
 		with open(output_file_name, "w") as f:
@@ -1111,10 +1614,11 @@ if __name__ == '__main__':
 				f.write(f"{cell[0]},{cell[1]}\n")
 
 
-		# Move the png file
-		Path(filename).rename(moved_file_name)
+		# Move the claimed source file out of this instance processing folder.
+		move_file_to_folder(Path(filename), processed_data_folder)
 		if filename in fileList:
 			fileList.remove(filename)
+		queue_error_map.pop(str(Path(filename)), None)
 		filename = None
 		last_failed_file = None
 
@@ -1127,6 +1631,8 @@ if __name__ == '__main__':
 		dpg.add_raw_texture(zones_and_tops_display_width, zones_and_tops_display_height, zones_and_tops_texture_data, tag="zones_and_tops_texture",
 							format=dpg.mvFormat_Float_rgb)
 		dpg.add_raw_texture(name_data_width, name_data_height, name_texture_data, tag="name_texture",
+							format=dpg.mvFormat_Float_rgb)
+		dpg.add_raw_texture(max(1, category_data_width), max(1, category_data_height), category_texture_data, tag="category_texture",
 							format=dpg.mvFormat_Float_rgb)
 		dpg.add_raw_texture(attempt_totals_width, attempt_totals_height, attempts_total_data, tag="attempts_total_texture",
 							format=dpg.mvFormat_Float_rgb)
@@ -1147,37 +1653,54 @@ if __name__ == '__main__':
 					dpg.add_image("texture_tag", tag="main_image")
 				with dpg.table_cell():
 					with dpg.group(horizontal=True):
-						if side_panel_width > zones_and_tops_display_width:
-							dpg.add_spacer(width=side_panel_width - zones_and_tops_display_width)
 						dpg.add_image("zones_and_tops_texture")
+						dpg.add_spacer(width=controls_panel_gap)
+						with dpg.group():
+							dpg.add_text(f"UI Instance: {instance_id}")
+							dpg.add_spacer(height=8)
+							dpg.add_text(f"Name contestant:")
+							dpg.add_input_text(tag=f"user_name")
+							dpg.add_text("Contestant number:")
+							dpg.add_input_text(tag="contestant_number")
+							with dpg.group(horizontal=True):
+								dpg.add_text(f"Is contestant male?")
+								dpg.add_checkbox(tag=f"is_male", default_value=True)
+							with dpg.group(horizontal=True):
+								dpg.add_text("Category:")
+								dpg.add_combo(_AGE_CATEGORIES, tag="age_category", default_value=_AGE_CATEGORIES[0], width=80)
+							dpg.add_spacer(height=15)
+							dpg.add_button(label="export", tag="export_button", callback=export_to_csv)
+							dpg.add_button(label="export to ground truth", tag="export_ground_truth_button", callback=export_to_ground_truth)
+							dpg.add_button(label="Show Debug Screen", tag="show_debug_button", callback=show_debug_screen)
+							dpg.add_spacer(height=15)
+							dpg.add_text("Scan directory")
+							dpg.add_input_text(tag="scan_dir_input", default_value=str(to_process_data_folder), width=240)
+							dpg.add_button(label="Apply + Refresh", callback=apply_scan_directory_and_refresh)
+							dpg.add_button(label="Refresh Queue", callback=refresh_file_queue)
+							dpg.add_spacer(height=15)
+							dpg.add_text("Queue: 0 file(s)", tag="queue_count_text")
+							dpg.add_text("Ready", tag="scan_status_text", wrap=240)
+							dpg.add_text("Current: -", tag="current_file_text")
+							with dpg.child_window(tag="queue_list_container", width=240, height=220, border=True):
+								pass
+							dpg.add_spacer(height=60)
+							dpg.add_text("OCR autofill status:")
+							dpg.add_input_text(tag="ocr_population_status_text", default_value="OCR autofill idle", width=240, readonly=True)
+							dpg.add_spacer(height=20)
+							dpg.add_button(label="Error check ALL (will stall UI)", tag="error_check_all_button", callback=error_check_all_queued_files)
+							dpg.add_text("Error check idle", tag="error_check_progress_text", wrap=240)
+							dpg.add_progress_bar(default_value=0.0, tag="error_check_progress_bar", width=240, overlay="0 / 0")
 			with dpg.table_row():
 				with dpg.table_cell():
 					dpg.add_image("name_texture")
+					if has_category_area:
+						dpg.add_image("category_texture")
 				with dpg.table_cell():
 					with dpg.group(horizontal=True):
-						if side_panel_width > attempt_totals_width:
-							dpg.add_spacer(width=side_panel_width - attempt_totals_width)
 						dpg.add_image("attempts_total_texture")
-			with dpg.table_row():
-				with dpg.table_cell():
-					dpg.add_text(f"Naam kandidaat:")
-					dpg.add_input_text(tag=f"user_name")
-					dpg.add_text(f"Is kandidaat man?")
-					dpg.add_checkbox(tag=f"is_male", default_value = True)
-					dpg.add_button(label="export", tag="export_button", callback=export_to_csv)
-					dpg.add_button(label="export to ground truth", tag="export_ground_truth_button", callback=export_to_ground_truth)
-					dpg.add_button(label="Show Debug Screen", tag="show_debug_button", callback=show_debug_screen)
-				with dpg.table_cell():
-					dpg.add_text("Scan directory")
-					dpg.add_input_text(tag="scan_dir_input", default_value=str(to_process_data_folder), width=240)
-					dpg.add_button(label="Apply + Refresh", callback=apply_scan_directory_and_refresh)
-					dpg.add_button(label="Refresh Queue", callback=refresh_file_queue)
-					dpg.add_text("Queue: 0 file(s)", tag="queue_count_text")
-					dpg.add_text("Current: -", tag="current_file_text")
-					dpg.add_text("Ready", tag="scan_status_text", wrap=240)
-					dpg.add_listbox([], tag="queue_list", num_items=10, width=240, callback=on_queue_file_selected)
 
 	show_loading_state("Starting up...")
+	set_status(f"Instance {instance_id} using claim folder: {processing_data_folder.name}")
 	refresh_file_queue()
 	update_queue_ui()
 	if filename is None and last_failed_file is None:
@@ -1192,8 +1715,11 @@ if __name__ == '__main__':
 		dpg.add_mouse_release_handler(button=0, callback=on_debug_mouse_release)
 		dpg.add_mouse_move_handler(callback=on_debug_mouse_move)
 
-	dpg.show_viewport()
-	dpg.maximize_viewport()
-	dpg.set_primary_window("mainWindow", True)
-	dpg.start_dearpygui()
-	dpg.destroy_context()
+	try:
+		dpg.show_viewport()
+		dpg.maximize_viewport()
+		dpg.set_primary_window("mainWindow", True)
+		dpg.start_dearpygui()
+	finally:
+		dpg.destroy_context()
+		restore_processing_folder_on_exit()

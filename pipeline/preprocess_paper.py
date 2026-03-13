@@ -132,19 +132,48 @@ def preprocess(image, gray, debug_steps=None):
 			for corners, marker_id in zip(corners_list, ids)
 		}
 
-		# Ensure all required markers are present
+		required_map = {
+			cfg.ID_TL: ("tl", "tl"),
+			cfg.ID_TR: ("tr", "tr"),
+			cfg.ID_BR: ("br", "br"),
+			cfg.ID_BL: ("bl", "bl"),
+		}
 		required_ids = [cfg.ID_TL, cfg.ID_TR, cfg.ID_BR, cfg.ID_BL]
+
+		# Build corner points for whichever required markers were detected.
+		corner_points = {}
+		for marker_id, (which_corner, corner_name) in required_map.items():
+			if marker_id in id_to_corners:
+				corner_points[corner_name] = marker_outer_corner(id_to_corners[marker_id], which_corner)
+
 		missing = [mid for mid in required_ids if mid not in id_to_corners]
-		if missing:
+		if len(missing) > 1:
 			raise RuntimeError(
 				f"Missing required ArUco IDs: {missing}. "
 				f"Detected IDs: {sorted(ids)}"
 			)
 
-		pt_tl = marker_outer_corner(id_to_corners[cfg.ID_TL], "tl")
-		pt_tr = marker_outer_corner(id_to_corners[cfg.ID_TR], "tr")
-		pt_br = marker_outer_corner(id_to_corners[cfg.ID_BR], "br")
-		pt_bl = marker_outer_corner(id_to_corners[cfg.ID_BL], "bl")
+		# If exactly one corner marker is missing, infer it from the other three sheet corners.
+		if len(missing) == 1:
+			missing_corner = [name for name in ("tl", "tr", "br", "bl") if name not in corner_points][0]
+			if missing_corner == "tl":
+				corner_points["tl"] = corner_points["tr"] + corner_points["bl"] - corner_points["br"]
+			elif missing_corner == "tr":
+				corner_points["tr"] = corner_points["tl"] + corner_points["br"] - corner_points["bl"]
+			elif missing_corner == "br":
+				corner_points["br"] = corner_points["tr"] + corner_points["bl"] - corner_points["tl"]
+			else:
+				corner_points["bl"] = corner_points["tl"] + corner_points["br"] - corner_points["tr"]
+
+			missing_id = missing[0]
+			print(
+				f"Inferred missing ArUco marker ID {missing_id} as corner '{missing_corner}' from 3 detected corners."
+			)
+
+		pt_tl = corner_points["tl"].astype(np.float32)
+		pt_tr = corner_points["tr"].astype(np.float32)
+		pt_br = corner_points["br"].astype(np.float32)
+		pt_bl = corner_points["bl"].astype(np.float32)
 
 		dyn_offsets = offsets_from_corner_cutout(pt_tl, pt_tr, pt_br, pt_bl)
 		if dyn_offsets is None:

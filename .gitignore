@@ -1,13 +1,8 @@
 __pycache__/
 venv/
 
-1.0/old/
-1.0/processed/
-1.0/toscan/
-1.0/results.csv/
-2.0/results.csv
+results.csv
 
 # Ignore all PNG files in the test_forms directory
-2.0/test_forms/**/*.png
-2.0/process_data/**/*.png
-2.0/results.csv
+test_forms/**/*.png
+process_data/**/*.png
