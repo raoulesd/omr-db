@@ -355,6 +355,8 @@ if __name__ == '__main__':
 	def set_debug_button_enabled(enabled):
 		if dpg.does_item_exist("show_debug_button"):
 			dpg.configure_item("show_debug_button", enabled=enabled)
+		if dpg.does_item_exist("toggle_all_bubbles_button"):
+			dpg.configure_item("toggle_all_bubbles_button", enabled=enabled)
 
 	def set_error_check_button_enabled(enabled):
 		if dpg.does_item_exist("error_check_all_button"):
@@ -1560,6 +1562,24 @@ if __name__ == '__main__':
 		
 
 		draw_data()
+
+	def toggle_all_bubbles_and_markers(sender=None, app_data=None):
+		global cell_data
+
+		if filename is None:
+			set_status("No active file loaded. Cannot toggle all bubbles.")
+			return
+
+		if cell_data.size == 0:
+			set_status("No bubble grid detected for current file.")
+			return
+
+		# Flip between two full debug states: everything enabled or everything disabled.
+		enable_all = not np.all(cell_data == 1)
+		fill_value = 1 if enable_all else 0
+		cell_data[:, :] = fill_value
+		draw_data()
+		set_status(f"Debug toggle ALL bubbles: {'enabled' if enable_all else 'disabled'}")
 		
 
 	def export_to_csv(sender, callback):
@@ -1699,6 +1719,9 @@ if __name__ == '__main__':
 							dpg.add_text("OCR autofill status:")
 							dpg.add_input_text(tag="ocr_population_status_text", default_value="OCR autofill idle", width=240, readonly=True)
 							dpg.add_spacer(height=20)
+							dpg.add_text("DANGER ZONE BELOW", color=(255, 0, 0))
+							dpg.add_button(label="Toggle ALL bubbles", tag="toggle_all_bubbles_button", callback=toggle_all_bubbles_and_markers)
+							dpg.add_spacer(height=10)
 							dpg.add_button(label="Error check ALL (will stall UI)", tag="error_check_all_button", callback=error_check_all_queued_files)
 							dpg.add_text("Error check idle", tag="error_check_progress_text", wrap=240)
 							dpg.add_progress_bar(default_value=0.0, tag="error_check_progress_bar", width=240, overlay="0 / 0")
