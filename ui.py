@@ -517,7 +517,7 @@ if __name__ == '__main__':
 
 		dpg.delete_item("queue_list_container", children_only=True)
 		error_count = 0
-		for idx, p in enumerate(reversed(fileList), start=1):
+		for idx, p in enumerate(fileList, start=1):
 			is_current = (filename is not None and p == filename)
 			is_error = p in queue_error_map
 			prefix = "* " if is_current else "  "
@@ -574,12 +574,23 @@ if __name__ == '__main__':
 			return
 
 		disk_files = []
-		for p in sorted(to_process_data_folder.iterdir()):
+		for p in to_process_data_folder.iterdir():
 			if not p.is_file():
 				continue
 			if p.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
 				continue
 			disk_files.append(str(p))
+
+		def queue_sort_key(path_str):
+			path_obj = Path(path_str)
+			try:
+				# Oldest scan first, then filename for stable ordering.
+				return (path_obj.stat().st_mtime, path_obj.name.lower())
+			except OSError:
+				# Missing/inaccessible files sink to the end until next refresh.
+				return (float("inf"), path_obj.name.lower())
+
+		disk_files.sort(key=queue_sort_key)
 
 		disk_set = set(disk_files)
 		old_set = set(fileList)
@@ -588,8 +599,9 @@ if __name__ == '__main__':
 		removed_files = [p for p in fileList if p not in disk_set]
 		added_files = [p for p in disk_files if p not in old_set]
 
-		# Keep existing queue order for files still present, then append new files.
+		# Keep existing queue order for files still present, then append new files oldest-first.
 		fileList[:] = [p for p in fileList if p in disk_set]
+		added_files.sort(key=queue_sort_key)
 		fileList.extend(added_files)
 
 		current_removed = False
@@ -613,16 +625,16 @@ if __name__ == '__main__':
 			else:
 				set_status("Rescanned: no new files found")
 
-		# If current item disappeared, immediately switch to top-of-stack file.
+		# If current item disappeared, immediately switch to oldest queued file.
 		if current_removed:
 			if len(fileList) > 0:
-				load_file(fileList[-1])
+				load_file(fileList[0])
 			else:
 				set_status("Current file removed and queue is now empty.")	
 
-		# If we were empty and new files appeared, auto-load the top-of-stack file.
+		# If we were empty and new files appeared, auto-load the oldest queued file.
 		if had_empty_state and len(fileList) > 0 and filename is None:
-			load_file(fileList[-1])
+			load_file(fileList[0])
 
 	def apply_scan_directory_and_refresh(sender, app_data):
 		global to_process_data_folder
@@ -1174,8 +1186,8 @@ if __name__ == '__main__':
 			set_export_buttons_enabled(False)
 			return
 
-		# Stack behavior: use the newest queued file (end of list), but keep it in queue until export.
-		load_file(fileList[-1])
+		# Queue behavior: use the oldest queued file (front of list), but keep it in queue until export.
+		load_file(fileList[0])
 
 	def draw_data():
 		global cell_data, full_page, amountZT, triesZT, per_boulder_ZT, frame
