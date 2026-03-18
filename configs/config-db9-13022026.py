@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = Path("/2.0/process_data/")
 
 # Path to the directory holding scanned files.
 SCANNED_FILES_DIR = BASE_DIR / "process_data" / "to_process"

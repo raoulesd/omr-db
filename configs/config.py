@@ -88,7 +88,7 @@ def _load_config_module(config_name):
     return module, module_name
 
 
-def set_active_config(config_name="config-db9-13022026"):
+def set_active_config(config_name="config-db9-new"):
     global _ACTIVE_CONFIG
     global _ACTIVE_CONFIG_NAME
 
@@ -103,7 +103,7 @@ def set_active_config(config_name="config-db9-13022026"):
 def get_active_config():
     global _ACTIVE_CONFIG
     if _ACTIVE_CONFIG is None:
-        default_name = os.getenv("OMR_CONFIG_NAME", "config-db9-13022026")
+        default_name = os.getenv("OMR_CONFIG_NAME", "config-db9-new")
         return set_active_config(default_name)
     return _ACTIVE_CONFIG
 

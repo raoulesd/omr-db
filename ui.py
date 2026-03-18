@@ -20,13 +20,13 @@ except ImportError:
 COLUMNS = 9
 ROWS = 20
 ANSWERS = 3
-CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-dbiyo2025")
+CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-db9-new")
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 TESSERACT_ENV_VAR = "TESSERACT_CMD"
-COMMON_TESSERACT_PATHS = (
-	r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-	r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-)
+COMMON_TESSERACT_PATHS = ()
+# 	r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+# 	r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+# )
 OCR_GENDER_CHAR_SUBS = str.maketrans({
 	"0": "O",
 	"1": "I",
