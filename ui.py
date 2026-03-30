@@ -28,17 +28,17 @@ if __name__ == '__main__':
 
 	processing_data_folder = to_process_data_folder.parent / f"processing_{instance_id}"
 	results_csv_path = Path(config.get_property("results_csv_path"))
-	ui_areas = config.get_property("ui_areas")
 
-	# Config values are already scaled via UI_SCALE and derived from UI_AREAS ratios.
-	frame_width = cfg.FRAME_WIDTH
-	frame_height = cfg.FRAME_HEIGHT
+	ui_scale = config.get_property("ui_scale")
+	frame_width = config.get_property("region_original_sizes")["attempt_score"][0] * ui_scale
+	frame_height = config.get_property("region_original_sizes")["attempt_score"][1] * ui_scale
 
-	attempt_totals_height = cfg.ATTEMPT_TOTALS_HEIGHT
-	attempt_totals_width = cfg.ATTEMPT_TOTALS_WIDTH
+	attempt_totals_width = config.get_property("region_original_sizes")["boulder_score"][0] * ui_scale
+	attempt_totals_height = config.get_property("region_original_sizes")["boulder_score"][1] * ui_scale
 
-	zones_and_tops_width = cfg.ZONES_AND_TOPS_WIDTH
-	zones_and_tops_height = cfg.ZONES_AND_TOPS_HEIGHT
+	zones_and_tops_width = config.get_property("region_original_sizes")["total_scores"][0] * ui_scale
+	zones_and_tops_height = config.get_property("region_original_sizes")["total_scores"][1] * ui_scale
+
 	zones_and_tops_left_padding = 48
 	# Display zones/tops at main-frame height while keeping its original aspect ratio.
 	zones_and_tops_display_height = frame_height
@@ -51,12 +51,15 @@ if __name__ == '__main__':
 	controls_panel_gap = 16
 	side_panel_width = max(zones_and_tops_display_width + controls_panel_gap + controls_panel_width, attempt_totals_width)
 
-	name_data_width = cfg.NAME_DATA_WIDTH
-	name_data_height = cfg.NAME_DATA_HEIGHT
+	name_data_width = config.get_property("region_original_sizes")["user_info"][0] * ui_scale
+	name_data_height = config.get_property("region_original_sizes")["user_info"][1] * ui_scale
 
-	category_data_width = getattr(cfg, "CATEGORY_DATA_WIDTH", 0)
-	category_data_height = getattr(cfg, "CATEGORY_DATA_HEIGHT", 0)
-	has_category_area = "category" in ui_areas and category_data_width > 0 and category_data_height > 0
+	category_data_width = 0
+	category_data_height = 0
+	has_category_area = "category" in config.get_property("included_regions")
+	if has_category_area:
+		category_data_width = config.get_property("region_original_sizes")["category"][0] * ui_scale
+		category_data_height = config.get_property("region_original_sizes")["category"][1] * ui_scale
 
 	paths = [processed_data_folder, to_process_data_folder, errored_data_folder, processing_data_folder]
 	for p in paths:
@@ -604,7 +607,7 @@ if __name__ == '__main__':
 		filename = claimed_path
 		show_loading_state(filename)
 		try:
-			filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False)
+			filled_cells, warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False)
 		except Exception as e:
 			failed_path = Path(filename)
 			queue_error_map.pop(candidate, None)
@@ -626,7 +629,10 @@ if __name__ == '__main__':
 		queue_error_map.pop(candidate, None)
 		queue_error_map.pop(filename, None)
 
-		cell_data = np.zeros((ROWS, COLS), dtype=np.uint8)
+		num_rows = config.get_property("num_boulders")
+		num_cols = config.get_property("num_attempts") * config.get_property("num_answers")
+
+		cell_data = np.zeros((num_rows, num_cols), dtype=np.uint8)
 		for (r, c) in filled_cells:
 			cell_data[r, c] = 1
 

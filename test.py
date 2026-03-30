@@ -2,6 +2,7 @@ import numpy as np
 import grader
 import argparse
 import os
+import configs.config as config
 
 # Example usage:
 # python test.py -d train
@@ -76,18 +77,21 @@ def run_on_single_instance(instance_path, config_name):
 def run_instance(instance_path, config_name):
 	print(f"Running on instance: {instance_path}")
 
-	(result, (num_rows, num_cols), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page) = grader.grade_score_form(instance_path, show_plots=False, config_name=config_name)
+	(result, warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page) = grader.grade_score_form(instance_path, show_plots=False, config_name=config_name)
 
 	ground_truth = read_ground_truth(instance_path)
 
-	return compare_result_with_ground_truth(result, ground_truth, num_rows, num_cols)
+	return compare_result_with_ground_truth(result, ground_truth)
 
-def compare_result_with_ground_truth(result, ground_truth, num_rows, num_cols, print_mistakes=True):
+def compare_result_with_ground_truth(result, ground_truth, print_mistakes=True):
 	# Initialize counters
 	true_positives = 0
 	false_positives = 0
 	false_negatives = 0
 	true_negatives = 0
+
+	num_rows = config.get_property("num_boulders")
+	num_cols = config.get_property("num_attempts") * config.get_property("num_answers")
 
 	result_grid = np.zeros(shape=(num_rows, num_cols), dtype=np.uint8)
 	ground_truth_grid = np.zeros(shape=(num_rows, num_cols), dtype=np.uint8)

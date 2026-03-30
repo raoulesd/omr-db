@@ -130,7 +130,7 @@ def grade_score_form(image_path, show_plots=False, debug_mode=False, return_debu
 			raise GradingDebugError(str(e), debug_steps=debug_steps) from e
 		raise
 
-	result = (filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), image)
+	result = (filled_cells, warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), image)
 	if return_debug_steps:
 		return (*result, debug_steps)
 	return result
