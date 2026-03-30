@@ -19,6 +19,9 @@ def detect_aruco_markers(image):
 			center_y = int(np.mean(corner[:, 1]))
 			marker_centers.append((center_x, center_y))
 
+	if marker_centers is None or len(marker_centers) != 4:
+		raise ValueError(f"Invalid ARUCO markers detected. Found: {len(marker_centers)} markers. Expected: 4 markers.")
+
 	# Sort the marker centers by their position
 	top_left = min(marker_centers, key=lambda x: x[0] + x[1])
 	top_right = min(marker_centers, key=lambda x: -x[0] + x[1])
@@ -27,6 +30,36 @@ def detect_aruco_markers(image):
 	marker_centers = [top_left, top_right, bottom_right, bottom_left]
 	
 	return marker_centers
+
+def rotate_image_to_flatten_aruco_markers(image, aruco_markers):
+	"""Rotate the image to flatten the ARUCO markers and ensure they are in the correct orientation.
+
+	Will cause the first two aruco markers (top left and top right) to be horizontal, and the second two aruco markers (bottom right and bottom left) to be horizontal.
+
+	Returns the rotated image and the updated ARUCO marker positions.
+	"""
+	top_left, top_right, bottom_right, bottom_left = aruco_markers
+
+	top_slope = (top_right[1] - top_left[1]) / (top_right[0] - top_left[0])
+	bottom_slope = (bottom_right[1] - bottom_left[1]) / (bottom_right[0] - bottom_left[0])
+
+	avg_slope = (top_slope + bottom_slope) / 2
+
+	angle = np.arctan(avg_slope) * 180 / np.pi
+
+	(h, w) = image.shape[:2]
+	center = (w // 2, h // 2)
+	M = cv2.getRotationMatrix2D(center, angle, 1.0)
+	rotated = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
+	aruco_markers_rotated = []
+
+	for marker in aruco_markers:
+		x = int(M[0, 0] * marker[0] + M[0, 1] * marker[1] + M[0, 2])
+		y = int(M[1, 0] * marker[0] + M[1, 1] * marker[1] + M[1, 2])
+		aruco_markers_rotated.append((x, y))
+	
+	return rotated, aruco_markers_rotated
 
 def img_coord_to_relative_coords(img_coord, aruco_markers):
 	# Convert the image coordinates to relative coordinates based on the ARUCO markers

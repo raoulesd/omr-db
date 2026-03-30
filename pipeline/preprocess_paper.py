@@ -13,6 +13,8 @@ def plot_paper(paper, title):
 	plt.axis("off")
 	plt.show()
 
+
+# Preprocess the paper by performing perspective correct using the aruco markers
 def preprocess(image, gray, debug_steps=None):
 	cfg = app_config.get_active_config()
 

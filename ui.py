@@ -1,114 +1,34 @@
 import difflib
 import os
 import re
-import shutil
 import textwrap
 import uuid
 from pathlib import Path
 import dearpygui.dearpygui as dpg
-import cv2 as cv
 import cv2 as cv2
 import numpy as np
 import grader
-from configs import config as app_config
+from configs import config as config
 
-try:
-	import pytesseract
-except ImportError:
-	pytesseract = None
+import tesseract_ocr
 
-COLUMNS = 9
-ROWS = 20
-ANSWERS = 3
 CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-db9-new")
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
-TESSERACT_ENV_VAR = "TESSERACT_CMD"
-COMMON_TESSERACT_PATHS = ()
-# 	r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-# 	r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-# )
-OCR_GENDER_CHAR_SUBS = str.maketrans({
-	"0": "O",
-	"1": "I",
-	"3": "E",
-	"4": "A",
-	"5": "S",
-	"6": "G",
-	"7": "T",
-	"8": "B",
-	"9": "G",
-	"|": "I",
-	"!": "I",
-})
-
-
-def resolve_tesseract_cmd():
-	explicit_path = os.getenv(TESSERACT_ENV_VAR)
-	if explicit_path:
-		explicit = Path(explicit_path).expanduser()
-		if explicit.exists():
-			return str(explicit)
-
-	detected = shutil.which("tesseract")
-	if detected:
-		return detected
-
-	for candidate in COMMON_TESSERACT_PATHS:
-		if Path(candidate).exists():
-			return candidate
-
-	return None
-
-
-def normalize_ocr_name(text):
-	cleaned_chars = []
-	for char in text.replace("\n", " ").replace("\f", " "):
-		if char.isalpha() or char in " -'":
-			cleaned_chars.append(char)
-		else:
-			cleaned_chars.append(" ")
-
-	return " ".join("".join(cleaned_chars).split()).strip()
-
-
-def extract_contestant_number(text):
-	digit_groups = re.findall(r"\d+", text.replace("\n", " ").replace("\f", " "))
-	if not digit_groups:
-		return ""
-	return max(digit_groups, key=len)
-
-
-def tokenize_gender_ocr(text):
-	normalized = text.upper().translate(OCR_GENDER_CHAR_SUBS).replace("\n", " ").replace("\f", " ")
-	cleaned_chars = []
-	for char in normalized:
-		cleaned_chars.append(char if char.isalpha() else " ")
-	return [token for token in "".join(cleaned_chars).split() if token]
-
-
-def detect_gender_from_ocr_texts(text_candidates):
-	joined = ""
-	for raw in text_candidates:
-		joined += "".join(tokenize_gender_ocr(raw))
-
-	if "F" in joined:
-		return False
-	return True
 
 if __name__ == '__main__':
 
-	cfg = app_config.set_active_config(CONFIG_FILE_NAME)
-	tesseract_cmd = resolve_tesseract_cmd()
-	if pytesseract is not None and tesseract_cmd is not None:
-		pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+	tesseract_ocr.tesseract_setup()
 
-	processed_data_folder = Path(cfg.PROCESSED_FILES_DIR)
-	to_process_data_folder = Path(cfg.SCANNED_FILES_DIR)
-	errored_data_folder = Path(cfg.ERRORED_FILES_DIR)
+	processed_data_folder = Path(config.get_property("processed_data_folder"))
+	to_process_data_folder = Path(config.get_property("scanning_data_folder"))
+	errored_data_folder = Path(config.get_property("errored_data_folder"))
+
+	# Generate a unique instance ID for this UI session for claiming files in the queue
 	instance_id = f"{os.getpid():x}{uuid.uuid4().hex[:2]}"
+
 	processing_data_folder = to_process_data_folder.parent / f"processing_{instance_id}"
-	results_csv_path = Path(cfg.RESULTS_CSV_PATH)
-	ui_areas = cfg.UI_AREAS
+	results_csv_path = Path(config.get_property("results_csv_path"))
+	ui_areas = config.get_property("ui_areas")
 
 	# Config values are already scaled via UI_SCALE and derived from UI_AREAS ratios.
 	frame_width = cfg.FRAME_WIDTH
@@ -154,7 +74,9 @@ if __name__ == '__main__':
 	# Safe defaults so UI can boot even when queue is empty.
 	frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
 	full_page = frame.copy()
-	cell_data = np.zeros((cfg.ROWS, cfg.COLS), dtype=np.uint8)
+	num_boulders = config.get_property("num_boulders")
+	num_attempts = config.get_property("num_attempts")
+	cell_data = np.zeros((num_boulders, num_attempts), dtype=np.uint8)
 	row_centers_sorted = np.array([])
 	col_centers_sorted = np.array([])
 	med_w = 1
@@ -656,6 +578,8 @@ if __name__ == '__main__':
 		set_status(f"Using scan directory: {to_process_data_folder} | Instance claim folder: {processing_data_folder.name}")
 		refresh_file_queue()
 
+
+
 	def load_file(candidate):
 		global filename, last_failed_file, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page, queue_error_map
 
@@ -680,7 +604,7 @@ if __name__ == '__main__':
 		filename = claimed_path
 		show_loading_state(filename)
 		try:
-			filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False, config_name=CONFIG_FILE_NAME)
+			filled_cells, (ROWS, COLS), warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False)
 		except Exception as e:
 			failed_path = Path(filename)
 			queue_error_map.pop(candidate, None)
@@ -727,6 +651,8 @@ if __name__ == '__main__':
 		else:
 			set_status(f"Loaded: {Path(filename).name}")
 		return True
+	
+
 
 	def on_queue_file_selected(sender, app_data, user_data):
 		selected_path = user_data

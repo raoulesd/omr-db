@@ -4,7 +4,7 @@ import numpy as np
 from imutils.perspective import four_point_transform
 from imutils import contours
 import imutils
-from configs import config as app_config
+import configs.config as config
 
 def compute_bubble_grid(questionCnts, thresh2, warped_u8, debug_steps=None):
 	"""
@@ -16,9 +16,8 @@ def compute_bubble_grid(questionCnts, thresh2, warped_u8, debug_steps=None):
 	:param warped_u8: Warped grayscale image normalized to uint8 (0..255)
 	"""
 
-	cfg = app_config.get_active_config()
-	rows = cfg.ROWS
-	cols = cfg.COLS
+	rows = config.get_property("num_boulders")
+	cols = config.get_property("num_attempts") * config.get_property("num_answers")
 
 	# 3 groups * 9 columns
 
@@ -103,11 +102,10 @@ def detect_bubbles(warped, debug_steps=None):
 			- warped_u8: Warped grayscale image normalized to uint8 (0..255)
 	"""
 
-	cfg = app_config.get_active_config()
-	circularity_min = cfg.circularity
-	extent_min = cfg.extent
-	hull_min = cfg.hull
-	debug_mode = cfg.debug_mode
+	circularity_min = config.get_property("circularity")
+	extent_min = config.get_property("extent")
+	hull_min = config.get_property("hull")
+	debug_mode = config.get_property("debug_mode")
 
 	# 1) Threshold (make sure warped is 8-bit single channel)
 	if warped.dtype != np.uint8:
