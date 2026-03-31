@@ -6,7 +6,7 @@ from imutils import contours
 import imutils
 import configs.config as config
 
-import pipeline.preprocess_paper as preprocess_paper
+import pipeline.preprocess_paper_2 as preprocess_paper
 import pipeline.bubble_grid as bubble_grid
 import pipeline.find_filled_bubbles as find_filled_bubbles
 

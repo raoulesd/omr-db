@@ -12,10 +12,13 @@ from configs import config as config
 
 import tesseract_ocr
 
-CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "config-db9-new")
+CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "db9-2024")
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 if __name__ == '__main__':
+
+	config.set_active_system_config("system_config")
+	config.set_active_config(CONFIG_FILE_NAME)
 
 	tesseract_ocr.tesseract_setup()
 
@@ -30,14 +33,14 @@ if __name__ == '__main__':
 	results_csv_path = Path(config.get_property("results_csv_path"))
 
 	ui_scale = config.get_property("ui_scale")
-	frame_width = config.get_property("region_original_sizes")["attempt_score"][0] * ui_scale
-	frame_height = config.get_property("region_original_sizes")["attempt_score"][1] * ui_scale
+	frame_width = int(config.get_property("region_original_sizes")["attempt_score"][0] * ui_scale)
+	frame_height = int(config.get_property("region_original_sizes")["attempt_score"][1] * ui_scale)
 
-	attempt_totals_width = config.get_property("region_original_sizes")["boulder_score"][0] * ui_scale
-	attempt_totals_height = config.get_property("region_original_sizes")["boulder_score"][1] * ui_scale
+	attempt_totals_width = int(config.get_property("region_original_sizes")["boulder_score"][0] * ui_scale)
+	attempt_totals_height = int(config.get_property("region_original_sizes")["boulder_score"][1] * ui_scale)
 
-	zones_and_tops_width = config.get_property("region_original_sizes")["total_scores"][0] * ui_scale
-	zones_and_tops_height = config.get_property("region_original_sizes")["total_scores"][1] * ui_scale
+	zones_and_tops_width = int(config.get_property("region_original_sizes")["total_scores"][0] * ui_scale)
+	zones_and_tops_height = int(config.get_property("region_original_sizes")["total_scores"][1] * ui_scale)
 
 	zones_and_tops_left_padding = 48
 	# Display zones/tops at main-frame height while keeping its original aspect ratio.
@@ -51,15 +54,15 @@ if __name__ == '__main__':
 	controls_panel_gap = 16
 	side_panel_width = max(zones_and_tops_display_width + controls_panel_gap + controls_panel_width, attempt_totals_width)
 
-	name_data_width = config.get_property("region_original_sizes")["user_info"][0] * ui_scale
-	name_data_height = config.get_property("region_original_sizes")["user_info"][1] * ui_scale
+	name_data_width = int(config.get_property("region_original_sizes")["user_info"][0] * ui_scale)
+	name_data_height = int(config.get_property("region_original_sizes")["user_info"][1] * ui_scale)
 
 	category_data_width = 0
 	category_data_height = 0
 	has_category_area = "category" in config.get_property("included_regions")
 	if has_category_area:
-		category_data_width = config.get_property("region_original_sizes")["category"][0] * ui_scale
-		category_data_height = config.get_property("region_original_sizes")["category"][1] * ui_scale
+		category_data_width = int(config.get_property("region_original_sizes")["category"][0] * ui_scale)
+		category_data_height = int(config.get_property("region_original_sizes")["category"][1] * ui_scale)
 
 	paths = [processed_data_folder, to_process_data_folder, errored_data_folder, processing_data_folder]
 	for p in paths:
@@ -321,7 +324,7 @@ if __name__ == '__main__':
 
 		frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
 		full_page = frame.copy()
-		cell_data = np.zeros((cfg.ROWS, cfg.COLS), dtype=np.uint8)
+		cell_data = np.zeros_like(cell_data)
 		row_centers_sorted = np.array([])
 		col_centers_sorted = np.array([])
 		med_w = 1
@@ -1187,38 +1190,9 @@ if __name__ == '__main__':
 		_, thresholded = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 		return cv2.copyMakeBorder(thresholded, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
 
-	def read_name_from_image(frame):
-		if pytesseract is None:
-			return "", "", "name OCR unavailable: install pytesseract"
-		if tesseract_cmd is None:
-			return "", "", f"name OCR unavailable: set {TESSERACT_ENV_VAR} or install Tesseract"
-
-		processed = preprocess_name_for_ocr(frame)
-		ocr_candidates = []
-		number_candidates = []
-		for config in ("--oem 3 --psm 7", "--oem 3 --psm 6"):
-			try:
-				raw = pytesseract.image_to_string(processed, config=config)
-				candidate = normalize_ocr_name(raw)
-				number_candidate = extract_contestant_number(raw)
-			except Exception as e:
-				print(f"Name OCR failed for {filename}: {e}")
-				return "", "", "name OCR failed"
-			if candidate:
-				ocr_candidates.append(candidate)
-			if number_candidate:
-				number_candidates.append(number_candidate)
-
-		if not ocr_candidates:
-			return "", "", "name OCR found no text"
-
-		best_match = max(ocr_candidates, key=len)
-		contestant_number = max(number_candidates, key=len) if number_candidates else ""
-		return best_match, contestant_number, None
-
 	def autofill_name_from_frame(frame):
 		name_crop = extract_name_area(frame)
-		ocr_name, contestant_number, ocr_status = read_name_from_image(name_crop)
+		ocr_name, contestant_number, ocr_status = tesseract_ocr.read_name_from_image(name_crop)
 		if dpg.does_item_exist("user_name"):
 			dpg.set_value("user_name", ocr_name)
 		if dpg.does_item_exist("contestant_number"):
@@ -1234,73 +1208,12 @@ if __name__ == '__main__':
 		cutout = frame[y_min:y_max, x_min:x_max]
 		return cv2.resize(cutout, (category_data_width, category_data_height), interpolation=cv2.INTER_LINEAR)
 
-	_AGE_CATEGORIES = ["U15", "U17", "U19", "U21"]
-
-	def read_category_from_image(frame):
-		"""Returns (is_male: bool|None, age_cat: str|None, status: str|None)."""
-		if pytesseract is None:
-			return None, None, "category OCR unavailable: install pytesseract"
-		if tesseract_cmd is None:
-			return None, None, f"category OCR unavailable: set {TESSERACT_ENV_VAR} or install Tesseract"
-
-		processed = preprocess_name_for_ocr(frame)
-		ocr_images = [
-			processed,
-			cv2.bitwise_not(processed),
-		]
-		char_whitelist = "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/ "
-		ocr_configs = (
-			f"--oem 3 --psm 6 {char_whitelist}",
-			f"--oem 3 --psm 7 {char_whitelist}",
-		)
-		ocr_texts = []
-
-		try:
-			for image in ocr_images:
-				for config in ocr_configs:
-					raw = pytesseract.image_to_string(image, config=config)
-					if raw and raw.strip():
-						ocr_texts.append(raw)
-		except Exception as e:
-			return None, None, f"category OCR failed: {e}"
-
-		if not ocr_texts:
-			return None, None, "category OCR found no text"
-
-		text_upper = "\n".join(ocr_texts).upper()
-		is_male = detect_gender_from_ocr_texts(ocr_texts)
-		gender_tokens = []
-		for raw in ocr_texts:
-			gender_tokens.extend(tokenize_gender_ocr(raw))
-
-		# Determine age category: exact substring match first, then closest word.
-		age_cat = None
-		for cat in _AGE_CATEGORIES:
-			if cat in text_upper:
-				age_cat = cat
-				break
-		if age_cat is None:
-			for word in text_upper.split():
-				matches = difflib.get_close_matches(word, _AGE_CATEGORIES, n=1, cutoff=0.6)
-				if matches:
-					age_cat = matches[0]
-					break
-
-		status = None
-		if is_male is None:
-			preview_tokens = gender_tokens[:8]
-			if preview_tokens:
-				status = f"gender OCR uncertain (detected: {' '.join(preview_tokens)})"
-			else:
-				status = "gender OCR uncertain (detected: no usable gender text)"
-
-		return is_male, age_cat, status
 
 	def autofill_category_from_frame(frame):
 		if not has_category_area:
 			return
 		cat_crop = extract_category_area(frame)
-		is_male, age_cat, status = read_category_from_image(cat_crop)
+		is_male, age_cat, status = tesseract_ocr.read_category_from_image(cat_crop)
 		if is_male is not None and dpg.does_item_exist("is_male"):
 			dpg.set_value("is_male", is_male)
 		if age_cat is not None and dpg.does_item_exist("age_category"):
@@ -1631,7 +1544,7 @@ if __name__ == '__main__':
 								dpg.add_checkbox(tag=f"is_male", default_value=True)
 							with dpg.group(horizontal=True):
 								dpg.add_text("Category:")
-								dpg.add_combo(_AGE_CATEGORIES, tag="age_category", default_value=_AGE_CATEGORIES[0], width=80)
+								dpg.add_combo(config.get_property("age_categories"), tag="age_category", default_value=config.get_property("age_categories")[0], width=80)
 							dpg.add_spacer(height=15)
 							dpg.add_button(label="export", tag="export_button", callback=export_to_csv)
 							dpg.add_button(label="export to ground truth", tag="export_ground_truth_button", callback=export_to_ground_truth)

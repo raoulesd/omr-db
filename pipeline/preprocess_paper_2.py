@@ -23,7 +23,6 @@ def preprocess(image, gray, debug_steps=None):
 	aruco_markers = aruco_handler.detect_aruco_markers(gray)
 
 	# Rotate the aruco markers to ensure they are in the correct orientation
-	aruco_markers = aruco_handler.rotate_aruco_markers(aruco_markers)
 	rotated_image, aruco_markers = aruco_handler.rotate_image_to_flatten_aruco_markers(image, aruco_markers)
 
 	return rotated_image, aruco_markers

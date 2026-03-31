@@ -68,5 +68,7 @@
             1.092286738237926,
             0.967391304347826
         ]
-    ]
+    ],
+    "has_age_categories": false,
+    "age_categories": ["N/A"]
 }
