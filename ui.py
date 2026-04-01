@@ -15,7 +15,6 @@ import ui_backend
 import tesseract_ocr
 
 CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "db9-2025")
-SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 if __name__ == '__main__':
 
@@ -276,16 +275,13 @@ if __name__ == '__main__':
 		set_ocr_population_status("OCR autofill not completed (processing error)")
 		set_ocr_status_bar("warning")
 
-	def update_queue_ui():
-		global queue_error_map
-		global queue_error_scan_has_run
-		global last_failed_file
+	def update_queue_ui(file_list, filename, last_failed_file=None):
 		if not dpg.does_item_exist("queue_list_container"):
 			return
 
 		dpg.delete_item("queue_list_container", children_only=True)
 		error_count = 0
-		for idx, p in enumerate(fileList, start=1):
+		for idx, p in enumerate(file_list, start=1):
 			is_current = (filename is not None and p == filename)
 			is_error = p in queue_error_map
 			prefix = "* " if is_current else "  "
@@ -305,13 +301,13 @@ if __name__ == '__main__':
 			elif is_current:
 				dpg.bind_item_theme(button_tag, "queue_current_theme")
 
-		if len(fileList) == 0:
+		if len(file_list) == 0:
 			dpg.add_button(label="<queue empty>", parent="queue_list_container", width=-1, enabled=False)
 
 		if queue_error_scan_has_run:
-			dpg.set_value("queue_count_text", f"Queue: {len(fileList)} file(s) | Errors: {error_count}")
+			dpg.set_value("queue_count_text", f"Queue: {len(file_list)} file(s) | Errors: {error_count}")
 		else:
-			dpg.set_value("queue_count_text", f"Queue: {len(fileList)} file(s)")
+			dpg.set_value("queue_count_text", f"Queue: {len(file_list)} file(s)")
 		if filename:
 			current_label = Path(filename).name
 		elif last_failed_file:
@@ -321,258 +317,21 @@ if __name__ == '__main__':
 		dpg.set_value("current_file_text", f"Current: {current_label}")
 
 		# If nothing is queued/active, present a blank UI and disable exports.
-		if len(fileList) == 0 and filename is None:
+		if len(file_list) == 0 and filename is None:
 			clear_display_textures()
 			set_export_buttons_enabled(False)
 		else:
 			set_export_buttons_enabled(filename is not None)
 
 		set_debug_button_enabled(filename is not None or last_failed_file is not None)
-
-	def refresh_file_queue(sender=None, app_data=None):
-		global to_process_data_folder
-		global filename
-		global last_failed_file
-		global queue_error_map
-		had_empty_state = (len(fileList) == 0 and filename is None)
-
-		if not to_process_data_folder.exists():
-			set_status(f"Scan directory does not exist: {to_process_data_folder}")
-			update_queue_ui()
-			return
-
-		disk_files = []
-		for p in to_process_data_folder.iterdir():
-			if not p.is_file():
-				continue
-			if p.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
-				continue
-			disk_files.append(str(p))
-
-		def queue_sort_key(path_str):
-			path_obj = Path(path_str)
-			try:
-				# Oldest scan first, then filename for stable ordering.
-				return (path_obj.stat().st_mtime, path_obj.name.lower())
-			except OSError:
-				# Missing/inaccessible files sink to the end until next refresh.
-				return (float("inf"), path_obj.name.lower())
-
-		disk_files.sort(key=queue_sort_key)
-
-		disk_set = set(disk_files)
-		old_set = set(fileList)
-		queue_error_map = {p: message for p, message in queue_error_map.items() if p in disk_set}
-
-		removed_files = [p for p in fileList if p not in disk_set]
-		added_files = [p for p in disk_files if p not in old_set]
-
-		# Keep existing queue order for files still present, then append new files oldest-first.
-		fileList[:] = [p for p in fileList if p in disk_set]
-		added_files.sort(key=queue_sort_key)
-		fileList.extend(added_files)
-
-		current_removed = False
-		if filename is not None:
-			current_path = Path(filename)
-			# Current file may be in this instance's processing folder and should remain active.
-			if not current_path.exists():
-				set_status(f"Current file was removed: {current_path.name}")
-				filename = None
-				current_removed = True
-
-		if last_failed_file is not None and not Path(last_failed_file).exists():
-			last_failed_file = None
-
-		update_queue_ui()
-		if not current_removed:
-			if added_files or removed_files:
-				set_status(
-					f"Rescanned: +{len(added_files)} / -{len(removed_files)} file(s)"
-				)
-			else:
-				set_status("Rescanned: no new files found")
-
-		# If current item disappeared, immediately switch to oldest queued file.
-		if current_removed:
-			if len(fileList) > 0:
-				load_file(fileList[0])
-			else:
-				set_status("Current file removed and queue is now empty.")	
-
-		# If we were empty and new files appeared, auto-load the oldest queued file.
-		if had_empty_state and len(fileList) > 0 and filename is None:
-			load_file(fileList[0])
-
-	def apply_scan_directory_and_refresh(sender, app_data):
-		global to_process_data_folder
-		global processing_data_folder
-		global queue_error_map
-		global queue_error_scan_has_run
-		new_dir = Path(dpg.get_value("scan_dir_input")).expanduser()
-		to_process_data_folder = new_dir
-		processing_data_folder = to_process_data_folder.parent / f"processing_{ui_state.get_ui_state().instance_id}"
-		if not to_process_data_folder.exists():
-			to_process_data_folder.mkdir(parents=True, exist_ok=True)
-		if not processing_data_folder.exists():
-			processing_data_folder.mkdir(parents=True, exist_ok=True)
-		queue_error_map = {}
-		queue_error_scan_has_run = False
-		set_error_check_progress(0, 0, is_running=False)
-		set_status(f"Using scan directory: {to_process_data_folder} | Instance claim folder: {processing_data_folder.name}")
-		refresh_file_queue()
-
-
-	def load_file(candidate):
-
-		if not Path(candidate).exists():
-			set_status(f"File no longer exists in queue: {Path(candidate).name}")
-			if candidate in fileList:
-				fileList.remove(candidate)
-			update_queue_ui()
-			return False
-
-		claimed_path, claim_error = claim_file_for_instance(candidate)
-		if claim_error:
-			set_status(f"Could not load {Path(candidate).name}: {claim_error}")
-			if candidate in fileList:
-				fileList.remove(candidate)
-			refresh_file_queue()
-			return False
-
-		if candidate in fileList:
-			fileList.remove(candidate)
-
-		filename = claimed_path
-		show_loading_state(filename)
-		try:
-			filled_cells, (row_centers_sorted, col_centers_sorted), median_bubble_size = grader.grade_score_form(filename, show_plots=False)
-		except Exception as e:
-			failed_path = Path(filename)
-			queue_error_map.pop(candidate, None)
-			try:
-				moved_failed_path = move_file_to_folder(failed_path, ui_state.get_ui_state().errored_data_folder)
-			except Exception as move_error:
-				set_status(f"Error reading {failed_path.name}: {e} | Could not move to errored: {move_error}")
-				show_error_state(f"{failed_path.name}: {e}")
-				last_failed_file = str(failed_path)
-			else:
-				set_status(f"Error reading {failed_path.name}: {e} | Moved to errored: {moved_failed_path.name}")
-				show_error_state(f"{failed_path.name}: {e}")
-				last_failed_file = str(moved_failed_path)
-			filename = None
-			refresh_file_queue()
-			return False
-
-		last_failed_file = None
-		queue_error_map.pop(candidate, None)
-		queue_error_map.pop(filename, None)
-
-		num_rows = config.get_property("num_boulders")
-		num_cols = config.get_property("num_attempts") * config.get_property("num_answers")
-
-		cell_data = np.zeros((num_rows, num_cols), dtype=np.uint8)
-		for (r, c) in filled_cells:
-			cell_data[r, c] = 1
-
-		if len(warped_u8.shape) == 2:
-			warped_u8 = cv2.cvtColor(warped_u8, cv2.COLOR_GRAY2RGB)
-		frame = warped_u8
-
-		draw_data()
-		ocr_name, contestant_number, ocr_status = autofill_name()
-		category_values = None
-		category_status = None
-		if ui_state.get_loaded_data().has_category_area:
-			is_male_value, age_cat_value, category_status = autofill_category_from_frame(ui_state.get_loaded_data().rectified_full_page_image)
-			category_values = (is_male_value, age_cat_value)
-		update_ocr_population_status(ocr_name, ocr_status, category_values, category_status)
-		update_queue_ui()
-		set_export_buttons_enabled(True)
-		if ocr_name:
-			set_status(f"Loaded: {Path(filename).name} | OCR: {ocr_name}")
-		elif ocr_status:
-			set_status(f"Loaded: {Path(filename).name} | {ocr_status}")
-		else:
-			set_status(f"Loaded: {Path(filename).name}")
-		return True
 	
 
+	def apply_scan_directory_and_refresh(sender, app_data):
+		new_dir = Path(dpg.get_value("scan_dir_input")).expanduser()
+		ui_backend.apply_scan_directory_and_refresh(new_dir)
 
-	def on_queue_file_selected(sender, app_data, user_data):
-		selected_path = user_data
-		if not selected_path:
-			return
 
-		if filename is not None:
-			if not release_current_file_to_queue():
-				return
-			refresh_file_queue()
 
-		load_file(selected_path)
-
-	def error_check_all_queued_files(sender=None, app_data=None):
-		global queue_error_map
-		global queue_error_scan_has_run
-
-		if len(fileList) == 0:
-			set_error_check_progress(0, 0, is_running=False)
-			set_status("Queue is empty. Nothing to error-check.")
-			return
-
-		checked_paths = list(fileList)
-		failed_paths = []
-		queue_error_scan_has_run = True
-		set_error_check_button_enabled(False)
-		set_error_check_progress(0, len(checked_paths), is_running=True)
-		set_status(f"Starting error check for {len(checked_paths)} queued file(s)...")
-		refresh_ui_frame()
-
-		try:
-			for index, candidate in enumerate(checked_paths, start=1):
-				set_error_check_progress(index, len(checked_paths), current_file=candidate, is_running=True)
-				set_status(f"Checking file {index} / {len(checked_paths)}: {Path(candidate).name}")
-				refresh_ui_frame()
-
-				if not Path(candidate).exists():
-					queue_error_map[candidate] = "File no longer exists"
-					failed_paths.append(candidate)
-					continue
-
-				try:
-					grader.grade_score_form(candidate, show_plots=False, config_name=CONFIG_FILE_NAME)
-				except Exception as e:
-					queue_error_map[candidate] = str(e)
-					failed_paths.append(candidate)
-				else:
-					queue_error_map.pop(candidate, None)
-		finally:
-			update_queue_ui()
-			set_error_check_button_enabled(True)
-
-		if failed_paths:
-			failed_names = ", ".join(Path(p).name for p in failed_paths[:3])
-			if len(failed_paths) > 3:
-				failed_names += ", ..."
-			completion_message = (
-				f"Error check complete: {len(failed_paths)} of {len(checked_paths)} queued file(s) failed. {failed_names}"
-			)
-			set_status(completion_message)
-			set_error_check_progress(
-				len(checked_paths),
-				len(checked_paths),
-				is_running=False,
-				status_label=f"Completed: {len(failed_paths)} failed of {len(checked_paths)} checked",
-			)
-		else:
-			completion_message = f"Error check complete: all {len(checked_paths)} queued file(s) loaded successfully."
-			set_status(completion_message)
-			set_error_check_progress(
-				len(checked_paths),
-				len(checked_paths),
-				is_running=False,
-				status_label=f"Completed: all {len(checked_paths)} files passed",
-			)
 
 	def to_rgb_texture(image_bgr, width, height):
 		img = image_bgr
@@ -954,22 +713,6 @@ if __name__ == '__main__':
 		show_debug_step(0)
 		dpg.configure_item("debug_window", label=f"Debug Pipeline - {Path(target_file).name}", show=True)
 
-	def get_next_file(is_initialization):
-		global filename
-
-		if len(fileList) == 0:
-			refresh_file_queue()
-
-		if len(fileList) == 0:
-			set_status("No files in queue. Add scans and press Refresh Queue.")
-			filename = None
-			update_queue_ui()
-			set_export_buttons_enabled(False)
-			return
-
-		# Queue behavior: use the oldest queued file (front of list), but keep it in queue until export.
-		load_file(fileList[0])
-
 	def draw_data(cell_data, bubble_grid_image, zones_and_tops_image, attempts_total_image, name_area_image, category_area_image):
 
 		amountZT, triesZT, per_boulder_ZT = grader.get_amounts_and_tries(cell_data)
@@ -994,26 +737,18 @@ if __name__ == '__main__':
 		_, thresholded = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 		return cv2.copyMakeBorder(thresholded, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
 
-	def autofill_name():
-		name_crop = ui_state.get_loaded_data().name_texture_data
-		ocr_name, contestant_number, ocr_status = tesseract_ocr.read_name_from_image(name_crop)
+	def fill_candidate_name(name, contestant_number):
 		if dpg.does_item_exist("user_name"):
-			dpg.set_value("user_name", ocr_name)
+			dpg.set_value("user_name", name)
 		if dpg.does_item_exist("contestant_number"):
 			dpg.set_value("contestant_number", contestant_number)
-		return ocr_name, contestant_number, ocr_status
 
 
-	def autofill_category_from_frame(frame):
-		if not ui_state.get_loaded_data().has_category_area:
-			return
-		cat_crop = ui_state.get_loaded_data().category_texture_data
-		is_male, age_cat, status = tesseract_ocr.read_category_from_image(cat_crop)
+	def set_category_and_gender(is_male, age_cat):
 		if is_male is not None and dpg.does_item_exist("is_male"):
 			dpg.set_value("is_male", is_male)
 		if age_cat is not None and dpg.does_item_exist("age_category"):
 			dpg.set_value("age_category", age_cat)
-		return is_male, age_cat, status
 
 	def draw_category_data(frame):
 		if not ui_state.get_loaded_data().has_category_area:
