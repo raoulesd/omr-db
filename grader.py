@@ -5,6 +5,8 @@ from imutils.perspective import four_point_transform
 from imutils import contours
 import imutils
 import configs.config as config
+import debug_pipeline
+import pipeline.region_extractor as region_extractor
 
 import pipeline.preprocess_paper_2 as preprocess_paper
 import pipeline.bubble_grid as bubble_grid
@@ -15,16 +17,6 @@ class GradingDebugError(RuntimeError):
 	def __init__(self, message, debug_steps=None):
 		super().__init__(message)
 		self.debug_steps = debug_steps if debug_steps is not None else []
-
-
-def _append_debug_step(debug_steps, title, image):
-	if debug_steps is None or image is None:
-		return
-
-	img = image.copy()
-	if len(img.shape) == 2:
-		img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-	debug_steps.append((title, img))
 
 def plot_paper(paper, title):
 	plt.figure(figsize=(8, 10))
@@ -65,44 +57,54 @@ def get_amounts_and_tries(cell_data):
 	return amountZT, triesZT, per_boulder_ZT
 
 
-		
 
-	
-
-def grade_score_form(image_path, show_plots=False, debug_mode=False, return_debug_steps=False):
-	debug_steps = [] if debug_mode else None
+def grade_score_form(image_path, show_plots, debug_mode):
 
 	# Load the image and convert it to grayscale
 	image = cv2.imread(image_path)
 	if image is None:
 		raise FileNotFoundError(f"Could not read image: {image_path}")
 	gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-	_append_debug_step(debug_steps, "01 - Original Input", image)
-	_append_debug_step(debug_steps, "02 - Input Grayscale", gray)
+	debug_pipeline.add_debug_step(image, "Original Input")
+	debug_pipeline.add_debug_step(gray, "Grayscale Input")
+	
 	if not hasattr(cv2, "aruco"):
 		raise ImportError("cv2.aruco not found. Install opencv-contrib-python.")
 
 	try:
-		paper, warped = preprocess_paper.preprocess(image, gray, debug_steps=debug_steps)
-		_append_debug_step(debug_steps, "03 - Preprocess Output (Paper)", paper)
-		_append_debug_step(debug_steps, "04 - Preprocess Output (Warped)", warped)
+		# The scoresheet, but rectified such that the content is aligned with the axes
+		scoresheet_rectified, rectified_aruco_markers = preprocess_paper.preprocess(image, gray)
+		debug_pipeline.add_debug_step(scoresheet_rectified, "Preprocess Output (Rectified scoresheet)")
 
 		if show_plots:
 			# Show the result of the question area contour detection
 			plt.figure(figsize=(8, 10))
-			plt.imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
-			plt.title(f"Detected Question Box outline")
+			plt.imshow(cv2.cvtColor(scoresheet_rectified, cv2.COLOR_BGR2RGB))
+			plt.title(f"Full rectified scoresheet")
 			plt.axis("off")
 			plt.show()
 
-		questionCnts, thresh2, warped_u8 = bubble_grid.detect_bubbles(warped, debug_steps=debug_steps)
-		_append_debug_step(debug_steps, "05 - Bubble Threshold", thresh2)
-		_append_debug_step(debug_steps, "06 - Warped U8", warped_u8)
-
-		bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, crit = bubble_grid.compute_bubble_grid(questionCnts, thresh2, warped_u8, debug_steps=debug_steps)
+		# Now we need to extract only the attempt score region (the bubbles)
+		bubble_area_image = region_extractor.extract_region(scoresheet_rectified, "attempt_score")
+		debug_pipeline.add_debug_step(bubble_area_image, "Extracted Bubble Area")
 
 		if show_plots:
-			bubble_grid.plot_bubble_grid(paper, bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, warped_u8)
+			# Show the extracted bubble area
+			plt.figure(figsize=(8, 10))
+			plt.imshow(cv2.cvtColor(bubble_area_image, cv2.COLOR_BGR2RGB))
+			plt.title(f"Extracted Bubble Area")
+			plt.axis("off")
+			plt.show()
+
+		questionCnts, thresh2, warped_u8 = bubble_grid.detect_bubbles(bubble_area_image)
+		debug_pipeline.add_debug_step(thresh2, "Bubble Threshold")
+		debug_pipeline.add_debug_step(warped_u8, "Warped U8")
+
+
+		bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, crit = bubble_grid.compute_bubble_grid(questionCnts, thresh2, warped_u8)
+
+		if show_plots:
+			bubble_grid.plot_bubble_grid(bubble_area_image, row_centers_sorted, col_centers_sorted)
 
 		filled_cells = find_filled_bubbles.find_filled_bubbles_alt(
 			bubbles,
@@ -113,24 +115,21 @@ def grade_score_form(image_path, show_plots=False, debug_mode=False, return_debu
 			med_w,
 			med_h,
 			crit,
-			debug_steps=debug_steps,
 		)
 
 		if debug_mode:
-			final_overlay = warped.copy()
+			final_overlay = bubble_area_image.copy()
 			if len(final_overlay.shape) == 2:
 				final_overlay = cv2.cvtColor(final_overlay, cv2.COLOR_GRAY2BGR)
 			for (r, c) in filled_cells:
 				x = int(col_centers_sorted[c])
 				y = int(row_centers_sorted[r])
 				cv2.circle(final_overlay, (x, y), max(2, int(med_w * 0.8)), (0, 0, 255), 2)
-			_append_debug_step(debug_steps, "99 - Final Filled Bubbles Overlay", final_overlay)
+			debug_pipeline.add_debug_step(final_overlay, "Final Filled Bubbles Overlay")
 	except Exception as e:
 		if debug_mode:
-			raise GradingDebugError(str(e), debug_steps=debug_steps) from e
+			raise GradingDebugError(str(e), debug_pipeline.get_debug_steps()) from e
 		raise
 
 	result = (filled_cells, warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), image)
-	if return_debug_steps:
-		return (*result, debug_steps)
 	return result

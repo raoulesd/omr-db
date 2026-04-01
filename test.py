@@ -21,6 +21,7 @@ def read_ground_truth(instance_path):
 			squares_filled.append((int(x), int(y)))
 	return squares_filled
 
+
 def compute_score(true_positives, false_positives, false_negatives, true_negatives):
 	total = true_positives + false_positives + false_negatives
 	if total == 0:
@@ -30,6 +31,7 @@ def compute_score(true_positives, false_positives, false_negatives, true_negativ
 	
 	accuracy = (true_positives) / total
 	return accuracy
+
 
 def run_on_folder(folder_path, config_name):
 
@@ -55,6 +57,7 @@ def run_on_folder(folder_path, config_name):
 
 	print(f"Score: {score}")
 
+
 def run_on_single_instance(instance_path, config_name):
 
 	true_positives = 0
@@ -77,7 +80,7 @@ def run_on_single_instance(instance_path, config_name):
 def run_instance(instance_path, config_name):
 	print(f"Running on instance: {instance_path}")
 
-	(result, warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page) = grader.grade_score_form(instance_path, show_plots=False, config_name=config_name)
+	(result, warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page) = grader.grade_score_form(instance_path, show_plots=True, debug_mode=False)
 
 	ground_truth = read_ground_truth(instance_path)
 
@@ -129,8 +132,12 @@ def compare_result_with_ground_truth(result, ground_truth, print_mistakes=True):
 # Arguement parser to know what to run
 ap = argparse.ArgumentParser()
 ap.add_argument("-d", "--data", required=True, help="what data to run (train/test/specific instance)")
-ap.add_argument("-c", "--config", default="config-db9-13022026", help="config file/module name")
+ap.add_argument("-c", "--config", default="db9-2025", help="config file/module name")
 args = vars(ap.parse_args())
+
+# Find the chosen config
+config.set_active_system_config("system_config")
+config.set_active_config(args["config"])
 
 if args["data"] == "train":
 	run_on_folder("./test_forms/train", args["config"])

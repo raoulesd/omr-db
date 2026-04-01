@@ -1,0 +1,76 @@
+{
+    "config_name": "db9-2025",
+    "use_name_detection": false,
+    "use_gender_detection": false,
+    "use_age_detection": false,
+    "num_attempts": 9,
+    "num_boulders": 20,
+    "included_regions": [
+        "user_info",
+        "attempt_score",
+        "boulder_score",
+        "total_scores"
+    ],
+    "region_original_sizes": {
+        "user_info": [
+            1150.0,
+            392.5
+        ],
+        "attempt_score": [
+            1690.0,
+            960.0
+        ],
+        "boulder_score": [
+            402.5,
+            962.5
+        ],
+        "total_scores": [
+            557.5,
+            242.5
+        ]
+    },
+    "has_age_categories": false,
+    "age_categories": [
+        "N/A"
+    ],
+    "user_info_region": [
+        [
+            0.3701976536883805,
+            -0.05787781350482315
+        ],
+        [
+            0.9057036936149686,
+            0.11039657020364416
+        ]
+    ],
+    "attempt_score_region": [
+        [
+            0.03259601982161841,
+            0.20257234726688103
+        ],
+        [
+            0.8195570698006914,
+            0.6141479099678456
+        ]
+    ],
+    "boulder_score_region": [
+        [
+            0.8707793866632346,
+            0.2015005359056806
+        ],
+        [
+            1.0582065006375405,
+            0.6141479099678456
+        ]
+    ],
+    "total_scores_region": [
+        [
+            0.8183929262356336,
+            0.8735262593783494
+        ],
+        [
+            1.077996941243523,
+            0.977491961414791
+        ]
+    ]
+}

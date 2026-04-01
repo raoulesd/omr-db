@@ -228,7 +228,7 @@ def detect_bubbles(warped, debug_steps=None):
 
 
 
-def plot_bubble_grid(paper, bubbles, row_centers, col_centers, med_w, med_h, warped_u8):
+def plot_bubble_grid(paper, row_centers, col_centers):
 	# Show the result of the grid detection by drawing a vertical line for each column and a horizontal line for each row
 	paper = paper.copy()
 	for row in row_centers:
