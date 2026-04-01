@@ -84,3 +84,17 @@ def get_property(property_name: str):
     
     # If neither the active config nor the system config has the property, raise an error
     raise ValueError(f"Config property '{property_name}' not found in active config or system config")
+
+def has_property(property_name: str):
+    """
+    Checks if a specific property exists in the active config or the system config.
+    """
+    global ACTIVE_CONFIG, ACTIVE_SYSTEM_CONFIG
+
+    if ACTIVE_CONFIG is not None and property_name in ACTIVE_CONFIG:
+        return True
+    
+    if ACTIVE_SYSTEM_CONFIG is not None and property_name in ACTIVE_SYSTEM_CONFIG:
+        return True
+    
+    return False

@@ -6,14 +6,20 @@ from imutils import contours
 import imutils
 import configs.config as config
 
-def compute_bubble_grid(questionCnts, thresh2, warped_u8, debug_steps=None):
+def compute_bubble_grid(questionCnts, bubble_area_image, debug_steps=None):
 	"""
 	Computes the grid layout of the detected bubble contours by clustering their centroids into ROWS and COLS using K-means.
 	Also estimates the median bubble size for later use in scoring.
 	
 	:param questionCnts: List of contours corresponding to detected bubbles
-	:param thresh2: Binary image used for contour detection (white=ink/pencil)
-	:param warped_u8: Warped grayscale image normalized to uint8 (0..255)
+	:param bubble_area_image: Image of the bubble area normalized to uint8 (0..255)
+
+	:return: Tuple of (bubbles, row_centers_sorted, col_centers_sorted, median_bubble_size)
+			
+		- bubbles: List of dicts with keys: c (contour), cx, cy, w, h, area, row, col
+		- row_centers_sorted: Sorted array of row center positions
+		- col_centers_sorted: Sorted array of column center positions
+		- median_bubble_size: Tuple of (median_width, median_height)
 	"""
 
 	rows = config.get_property("num_boulders")
@@ -48,6 +54,8 @@ def compute_bubble_grid(questionCnts, thresh2, warped_u8, debug_steps=None):
 	med_w = int(np.median([b["w"] for b in bubbles]))
 	med_h = int(np.median([b["h"] for b in bubbles]))
 
+	median_bubble_size = (med_w, med_h)
+
 	# K-means cluster centroids into ROWS and COLS
 	ys = np.array([[b["cy"]] for b in bubbles], dtype=np.float32)
 	xs = np.array([[b["cx"]] for b in bubbles], dtype=np.float32)
@@ -80,26 +88,24 @@ def compute_bubble_grid(questionCnts, thresh2, warped_u8, debug_steps=None):
 		b["col"] = col_map[int(col_labels[i][0])]
 
 	if debug_steps is not None:
-		overlay = cv2.cvtColor(warped_u8.copy(), cv2.COLOR_GRAY2BGR)
+		overlay = cv2.cvtColor(bubble_area_image.copy(), cv2.COLOR_GRAY2BGR)
 		for y in row_centers_sorted:
 			cv2.line(overlay, (0, int(y)), (overlay.shape[1], int(y)), (0, 255, 0), 1)
 		for x in col_centers_sorted:
 			cv2.line(overlay, (int(x), 0), (int(x), overlay.shape[0]), (255, 0, 0), 1)
 		debug_steps.append(("Bubble Grid - Row/Col Centers", overlay))
-	return bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, crit
+	return bubbles, row_centers_sorted, col_centers_sorted, median_bubble_size
 
 
 
 
-def detect_bubbles(warped, debug_steps=None):
+def detect_bubbles(bubble_area_image, debug_steps=None):
 	"""
-	Detects bubble contours in the warped grayscale image of the question area.
+	Detects bubbles in the warped grayscale image
 	
-	:param warped: Warped grayscale image of the question area
-	:return: Tuple of (questionCnts, thresh2, warped_u8)
+	:param rectified_cropped_bubble_area: Warped grayscale image of the question area
+	:return: Tuple of (questionCnts, bubble_area_image)
 			- questionCnts: List of contours corresponding to detected bubbles
-			- thresh2: Binary image used for contour detection (white=ink/pencil)
-			- warped_u8: Warped grayscale image normalized to uint8 (0..255)
 	"""
 
 	circularity_min = config.get_property("circularity")
@@ -107,14 +113,15 @@ def detect_bubbles(warped, debug_steps=None):
 	hull_min = config.get_property("hull")
 	debug_mode = config.get_property("debug_mode")
 
-	# 1) Threshold (make sure warped is 8-bit single channel)
-	if warped.dtype != np.uint8:
-		warped_u8 = cv2.normalize(warped, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-	else:
-		warped_u8 = warped
+	# 1) Threshold (make sure bubble_area_image_u8 is 8-bit single channel)
+	if bubble_area_image.dtype != np.uint8:
+		bubble_area_image = cv2.normalize(bubble_area_image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+	# bubble_area_image must be single-channel grayscale for the thresholding and contour steps
+	assert len(bubble_area_image.shape) == 2, "Bubble area image must be single-channel grayscale"
 
 	# blur helps a lot for pencil texture
-	enhanced = cv2.GaussianBlur(warped_u8, (5, 5), 0)
+	enhanced = cv2.GaussianBlur(bubble_area_image, (5, 5), 0)
 
 
 	thresh2 = cv2.adaptiveThreshold(
@@ -218,11 +225,11 @@ def detect_bubbles(warped, debug_steps=None):
 		print(f"Detected bubble-like contours: {len(questionCnts)}")
 
 	if debug_steps is not None:
-		overlay = cv2.cvtColor(warped_u8.copy(), cv2.COLOR_GRAY2BGR)
+		overlay = cv2.cvtColor(bubble_area_image.copy(), cv2.COLOR_GRAY2BGR)
 		cv2.drawContours(overlay, questionCnts, -1, (0, 0, 255), 1)
 		debug_steps.append(("Bubble Detection - Filtered Contours", overlay))
 
-	return questionCnts, thresh2, warped_u8
+	return questionCnts
 
 
 

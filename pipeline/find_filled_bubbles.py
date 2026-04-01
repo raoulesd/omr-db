@@ -221,13 +221,9 @@ def diff_with_offset(img1, img2, offset_x, offset_y):
 	elif offset_x < 0:
 		img2_offset = np.pad(img2_offset, ((0, 0), (0, -offset_x)), mode='constant')[:, -offset_x:]
 
-def find_filled_bubbles_alt2(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit):
-	full_paper_threshold = isodata_threshold(warped_u8.flatten()) + 10
-	thresholded = cv2.threshold(warped_u8, full_paper_threshold, 255, cv2.THRESH_BINARY)
 
 
-
-def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thresh2, warped_u8, med_w, med_h, crit, debug_steps=None):
+def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, bubble_area_image, median_bubble_size, debug_steps=None):
 	rows = config.get_property("num_boulders")
 	cols = config.get_property("num_attempts") * config.get_property("num_answers")
 
@@ -235,12 +231,15 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 	sample_neighbourhood = None
 	sample_neighbourhood_sorted = None
 
+	med_w = median_bubble_size[0]
+	med_h = median_bubble_size[1]
+
 	for r in range(rows):
 		for c in range(cols):
 			x = int(col_centers_sorted[c])
 			y = int(row_centers_sorted[r])
 
-			neighbourhood = warped_u8[y-med_h//2:y+med_h//2+1, x-med_w//2:x+med_w//2+1]
+			neighbourhood = bubble_area_image[y-med_h//2:y+med_h//2+1, x-med_w//2:x+med_w//2+1]
 			neighbourhood_flattened = neighbourhood.flatten()
 			neighbourhood_flattened_sorted = sorted(neighbourhood_flattened)
 			neighbourhood_flattened_sorted = neighbourhood_flattened_sorted[len(neighbourhood_flattened_sorted)//2:len(neighbourhood_flattened_sorted)//4*3]
@@ -360,4 +359,4 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, thr
 				
 
 
-	return filled_bubbles, (rows, cols)
+	return filled_bubbles

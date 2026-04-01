@@ -16,9 +16,11 @@ def plot_paper(paper, title):
 
 
 # Preprocess the paper by flattening it
-def preprocess(image, gray, debug_steps=None):
+def preprocess(image, debug_steps=None):
 	"""Preprocess the input image to make sure it's level
 	"""
+
+	gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
 	aruco_markers = aruco_handler.detect_aruco_markers(gray)
 

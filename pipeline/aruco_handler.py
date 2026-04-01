@@ -1,7 +1,30 @@
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
 
 def detect_aruco_markers(image):
+
+	# First make sure the image is in grayscale
+	if len(image.shape) == 3 and image.shape[2] == 3:
+		image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+		
+	# Then threshold the image to get a binary image
+	_, thresh = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY)
+
+	# Now apply some opening to fill in any gaps in the markers (markers should be solid black so gaps are white)
+	kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+	closed = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+
+	image = closed
+
+	# Plot the image
+	if False:
+		plt.figure(figsize=(8, 10))
+		plt.imshow(image, cmap='gray')
+		plt.title("Preprocessed Image for ARUCO Detection")
+		plt.axis("off")
+		plt.show()
+
 	# Load the predefined dictionary
 	aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
 	

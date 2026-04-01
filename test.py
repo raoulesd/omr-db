@@ -8,6 +8,7 @@ import configs.config as config
 # python test.py -d train
 # python test.py -d test
 # python test.py -d ./test_forms/train/score20251104_001.png
+# python test.py -d ./test_forms/big_set/processedscore20251104_052.png
 
 def read_ground_truth(instance_path):
 	ground_truth_path = "."+"".join(instance_path.split(".")[:-1]) + ".csv"
@@ -80,7 +81,7 @@ def run_on_single_instance(instance_path, config_name):
 def run_instance(instance_path, config_name):
 	print(f"Running on instance: {instance_path}")
 
-	(result, warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page) = grader.grade_score_form(instance_path, show_plots=True, debug_mode=False)
+	(result, (row_centers_sorted, col_centers_sorted), median_bubble_size, scoresheet_rectified) = grader.grade_score_form(instance_path, show_plots=False, debug_mode=False)
 
 	ground_truth = read_ground_truth(instance_path)
 

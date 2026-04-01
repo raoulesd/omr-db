@@ -9,10 +9,12 @@ import cv2 as cv2
 import numpy as np
 import grader
 from configs import config as config
+import ui_state
+import ui_backend
 
 import tesseract_ocr
 
-CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "db9-2024")
+CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "db9-2025")
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 if __name__ == '__main__':
@@ -22,88 +24,15 @@ if __name__ == '__main__':
 
 	tesseract_ocr.tesseract_setup()
 
-	processed_data_folder = Path(config.get_property("processed_data_folder"))
-	to_process_data_folder = Path(config.get_property("scanning_data_folder"))
-	errored_data_folder = Path(config.get_property("errored_data_folder"))
+	ui_state.setup()
 
-	# Generate a unique instance ID for this UI session for claiming files in the queue
-	instance_id = f"{os.getpid():x}{uuid.uuid4().hex[:2]}"
-
-	processing_data_folder = to_process_data_folder.parent / f"processing_{instance_id}"
-	results_csv_path = Path(config.get_property("results_csv_path"))
-
-	ui_scale = config.get_property("ui_scale")
-	frame_width = int(config.get_property("region_original_sizes")["attempt_score"][0] * ui_scale)
-	frame_height = int(config.get_property("region_original_sizes")["attempt_score"][1] * ui_scale)
-
-	attempt_totals_width = int(config.get_property("region_original_sizes")["boulder_score"][0] * ui_scale)
-	attempt_totals_height = int(config.get_property("region_original_sizes")["boulder_score"][1] * ui_scale)
-
-	zones_and_tops_width = int(config.get_property("region_original_sizes")["total_scores"][0] * ui_scale)
-	zones_and_tops_height = int(config.get_property("region_original_sizes")["total_scores"][1] * ui_scale)
-
-	zones_and_tops_left_padding = 48
-	# Display zones/tops at main-frame height while keeping its original aspect ratio.
-	zones_and_tops_display_height = frame_height
-	zones_and_tops_base_display_width = max(
-		1,
-		int(round(zones_and_tops_width * (zones_and_tops_display_height / float(max(1, zones_and_tops_height)))))
-	)
-	zones_and_tops_display_width = zones_and_tops_base_display_width + zones_and_tops_left_padding
-	controls_panel_width = 280
-	controls_panel_gap = 16
-	side_panel_width = max(zones_and_tops_display_width + controls_panel_gap + controls_panel_width, attempt_totals_width)
-
-	name_data_width = int(config.get_property("region_original_sizes")["user_info"][0] * ui_scale)
-	name_data_height = int(config.get_property("region_original_sizes")["user_info"][1] * ui_scale)
-
-	category_data_width = 0
-	category_data_height = 0
-	has_category_area = "category" in config.get_property("included_regions")
-	if has_category_area:
-		category_data_width = int(config.get_property("region_original_sizes")["category"][0] * ui_scale)
-		category_data_height = int(config.get_property("region_original_sizes")["category"][1] * ui_scale)
-
-	paths = [processed_data_folder, to_process_data_folder, errored_data_folder, processing_data_folder]
-	for p in paths:
-		if not p.exists():
-			p.mkdir(parents=True, exist_ok=True)
-			print(f"Made dir: {p}")
-
-	path = to_process_data_folder
-	fileList = []
-	filename = None
-	last_failed_file = None
-	queue_error_map = {}
-	queue_error_scan_has_run = False
-
-	# Safe defaults so UI can boot even when queue is empty.
-	frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
-	full_page = frame.copy()
-	num_boulders = config.get_property("num_boulders")
-	num_attempts = config.get_property("num_attempts")
-	cell_data = np.zeros((num_boulders, num_attempts), dtype=np.uint8)
-	row_centers_sorted = np.array([])
-	col_centers_sorted = np.array([])
-	med_w = 1
-	med_h = 1
-	amountZT = [0, 0]
-	triesZT = [0, 0]
-	per_boulder_ZT = []
-	texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
-	zones_and_tops_texture_data = np.zeros((zones_and_tops_display_height * zones_and_tops_display_width * 3,), dtype=np.float32)
-	name_texture_data = np.zeros((name_data_height * name_data_width * 3,), dtype=np.float32)
-	category_texture_data = np.zeros((max(1, category_data_height) * max(1, category_data_width) * 3,), dtype=np.float32)
-	attempts_total_data = np.zeros((attempt_totals_height * attempt_totals_width * 3,), dtype=np.float32)
-	debug_texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
+	#debug_texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
 	debug_steps_cache = []
 	debug_zoom = {'x0': 0.0, 'y0': 0.0, 'x1': 1.0, 'y1': 1.0}
 	debug_drag_start_local = None
 	debug_drag_current_local = None
 	debug_is_dragging = False
 	debug_current_step_img = None
-
-	csvFile = open(results_csv_path, "a")
 
 	dpg.create_context()
 	dpg.create_viewport(title='Review scores', width=1400, height=1000)
@@ -153,89 +82,6 @@ if __name__ == '__main__':
 			dpg.set_value("scan_status_text", message)
 		print(message)
 
-	def move_file_to_folder(source_path, target_folder):
-		target_folder.mkdir(parents=True, exist_ok=True)
-		source = Path(source_path)
-		candidate = target_folder / source.name
-		if not candidate.exists():
-			source.rename(candidate)
-			return candidate
-
-		counter = 1
-		while True:
-			candidate = target_folder / f"{source.stem}__{counter}{source.suffix}"
-			if not candidate.exists():
-				source.rename(candidate)
-				return candidate
-			counter += 1
-
-	def claim_file_for_instance(candidate):
-		source = Path(candidate)
-		if not source.exists():
-			return None, "File no longer exists (possibly claimed by another instance)."
-
-		processing_data_folder.mkdir(parents=True, exist_ok=True)
-		claimed = processing_data_folder / source.name
-		if claimed.exists():
-			return None, f"Could not claim file: claim target already exists ({claimed.name})"
-
-		try:
-			source.rename(claimed)
-		except Exception as e:
-			return None, f"Could not claim file: {e}"
-
-		return str(claimed), None
-
-	def release_current_file_to_queue():
-		global filename
-		if filename is None:
-			return True
-
-		current_path = Path(filename)
-		if not current_path.exists():
-			filename = None
-			return True
-
-		try:
-			restored_path = move_file_to_folder(current_path, to_process_data_folder)
-		except Exception as e:
-			set_status(f"Could not put back current file {current_path.name}: {e}")
-			return False
-
-		set_status(f"Returned unexported file to queue: {restored_path.name}")
-		filename = None
-		return True
-
-	def restore_processing_folder_on_exit():
-		if not processing_data_folder.exists():
-			return
-
-		moved_count = 0
-		failed = []
-		for p in sorted(processing_data_folder.iterdir()):
-			if not p.is_file():
-				continue
-			try:
-				move_file_to_folder(p, to_process_data_folder)
-				moved_count += 1
-			except Exception as e:
-				failed.append(f"{p.name}: {e}")
-
-		if moved_count:
-			print(f"Returned {moved_count} file(s) from {processing_data_folder.name} to {to_process_data_folder}")
-
-		if failed:
-			print("Could not restore some files from processing folder:")
-			for message in failed:
-				print(f" - {message}")
-
-		try:
-			processing_data_folder.rmdir()
-			print(f"Removed processing folder: {processing_data_folder}")
-		except OSError:
-			# Folder may still contain files/subfolders when restoration fails.
-			pass
-
 	def set_ocr_population_status(message):
 		if dpg.does_item_exist("ocr_population_status_text"):
 			dpg.set_value("ocr_population_status_text", message)
@@ -245,7 +91,7 @@ if __name__ == '__main__':
 		if not name_value:
 			missing_fields.append("name")
 
-		if has_category_area:
+		if ui_state.get_loaded_data().has_category_area:
 			is_male_value = None
 			age_cat_value = None
 			if category_values is not None:
@@ -263,7 +109,7 @@ if __name__ == '__main__':
 		notes = []
 		if name_status:
 			notes.append(name_status)
-		if has_category_area and category_status:
+		if ui_state.get_loaded_data().has_category_area and category_status:
 			notes.append(category_status)
 		if notes:
 			base_message = f"{base_message} | {'; '.join(notes)}"
@@ -320,26 +166,18 @@ if __name__ == '__main__':
 		dpg.configure_item("error_check_progress_bar", overlay=overlay)
 
 	def clear_display_textures():
-		global frame, full_page, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h
-
-		frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
-		full_page = frame.copy()
-		cell_data = np.zeros_like(cell_data)
-		row_centers_sorted = np.array([])
-		col_centers_sorted = np.array([])
-		med_w = 1
-		med_h = 1
+		ui_state.get_loaded_data().clear_textures()
 
 		if dpg.does_item_exist("texture_tag"):
-			dpg.set_value("texture_tag", np.zeros((frame_height * frame_width * 3,), dtype=np.float32))
+			dpg.set_value("texture_tag", np.zeros((ui_state.get_loaded_data().bubble_grid_width * ui_state.get_loaded_data().bubble_grid_height * 3,), dtype=np.float32))
 		if dpg.does_item_exist("zones_and_tops_texture"):
-			dpg.set_value("zones_and_tops_texture", np.zeros((zones_and_tops_display_height * zones_and_tops_display_width * 3,), dtype=np.float32))
+			dpg.set_value("zones_and_tops_texture", np.zeros((ui_state.get_loaded_data().zones_and_tops_display_height * ui_state.get_loaded_data().zones_and_tops_display_width * 3,), dtype=np.float32))
 		if dpg.does_item_exist("name_texture"):
-			dpg.set_value("name_texture", np.zeros((name_data_height * name_data_width * 3,), dtype=np.float32))
+			dpg.set_value("name_texture", np.zeros((ui_state.get_loaded_data().name_data_height * ui_state.get_loaded_data().name_data_width * 3,), dtype=np.float32))
 		if dpg.does_item_exist("category_texture"):
-			dpg.set_value("category_texture", np.zeros((max(1, category_data_height) * max(1, category_data_width) * 3,), dtype=np.float32))
+			dpg.set_value("category_texture", np.zeros((max(1, ui_state.get_loaded_data().category_data_height) * max(1, ui_state.get_loaded_data().category_data_width) * 3,), dtype=np.float32))
 		if dpg.does_item_exist("attempts_total_texture"):
-			dpg.set_value("attempts_total_texture", np.zeros((attempt_totals_height * attempt_totals_width * 3,), dtype=np.float32))
+			dpg.set_value("attempts_total_texture", np.zeros((ui_state.get_loaded_data().attempt_totals_height * ui_state.get_loaded_data().attempt_totals_width * 3,), dtype=np.float32))
 		set_ocr_population_status("OCR autofill idle")
 		set_ocr_status_bar("warning")
 
@@ -375,38 +213,38 @@ if __name__ == '__main__':
 	def show_loading_state(file_path=None):
 		name = Path(file_path).name if file_path else ""
 		main_msg = _render_message_image(
-			frame_width,
-			frame_height,
+			ui_state.get_loaded_data().bubble_grid_width,
+			ui_state.get_loaded_data().bubble_grid_height,
 			"Loading...",
 			subtitle=name,
 			bg_color=(25, 25, 25),
 		)
 		side_msg = _render_message_image(
-			zones_and_tops_display_width,
-			zones_and_tops_display_height,
+			ui_state.get_loaded_data().zones_and_tops_display_width,
+			ui_state.get_loaded_data().zones_and_tops_display_height,
 			"Loading...",
 			bg_color=(25, 25, 25),
 		)
 		name_msg = _render_message_image(
-			name_data_width,
-			name_data_height,
+			ui_state.get_loaded_data().name_data_width,
+			ui_state.get_loaded_data().name_data_height,
 			"Loading...",
 			bg_color=(25, 25, 25),
 		)
 		attempt_msg = _render_message_image(
-			attempt_totals_width,
-			attempt_totals_height,
+			ui_state.get_loaded_data().attempt_totals_width,
+			ui_state.get_loaded_data().attempt_totals_height,
 			"Loading...",
 			bg_color=(25, 25, 25),
 		)
 
-		_set_texture_if_exists("texture_tag", main_msg, frame_width, frame_height)
-		_set_texture_if_exists("zones_and_tops_texture", side_msg, zones_and_tops_display_width, zones_and_tops_display_height)
-		_set_texture_if_exists("name_texture", name_msg, name_data_width, name_data_height)
-		if has_category_area:
-			cat_msg = _render_message_image(category_data_width, category_data_height, "...", bg_color=(25, 25, 25))
-			_set_texture_if_exists("category_texture", cat_msg, category_data_width, category_data_height)
-		_set_texture_if_exists("attempts_total_texture", attempt_msg, attempt_totals_width, attempt_totals_height)
+		_set_texture_if_exists("texture_tag", main_msg, ui_state.get_loaded_data().bubble_grid_width, ui_state.get_loaded_data().bubble_grid_height)
+		_set_texture_if_exists("zones_and_tops_texture", side_msg, ui_state.get_loaded_data().zones_and_tops_display_width, ui_state.get_loaded_data().zones_and_tops_display_height)
+		_set_texture_if_exists("name_texture", name_msg, ui_state.get_loaded_data().name_data_width, ui_state.get_loaded_data().name_data_height)
+		if ui_state.get_loaded_data().has_category_area:
+			cat_msg = _render_message_image(ui_state.get_loaded_data().category_data_width, ui_state.get_loaded_data().category_data_height, "...", bg_color=(25, 25, 25))
+			_set_texture_if_exists("category_texture", cat_msg, ui_state.get_loaded_data().category_data_width, ui_state.get_loaded_data().category_data_height)
+		_set_texture_if_exists("attempts_total_texture", attempt_msg, ui_state.get_loaded_data().attempt_totals_width, ui_state.get_loaded_data().attempt_totals_height)
 
 		set_export_buttons_enabled(False)
 		set_ocr_population_status("OCR autofill in progress...")
@@ -414,25 +252,25 @@ if __name__ == '__main__':
 
 	def show_error_state(error_message):
 		error_main = _render_message_image(
-			frame_width,
-			frame_height,
+			ui_state.get_loaded_data().bubble_grid_width,
+			ui_state.get_loaded_data().bubble_grid_height,
 			"Processing Error",
 			subtitle=str(error_message),
 			bg_color=(35, 35, 60),
 			title_color=(220, 220, 255),
 			subtitle_color=(220, 220, 220),
 		)
-		black_side = np.zeros((zones_and_tops_display_height, zones_and_tops_display_width, 3), dtype=np.uint8)
-		black_name = np.zeros((name_data_height, name_data_width, 3), dtype=np.uint8)
-		black_attempt = np.zeros((attempt_totals_height, attempt_totals_width, 3), dtype=np.uint8)
+		black_side = np.zeros((ui_state.get_loaded_data().zones_and_tops_display_height, ui_state.get_loaded_data().zones_and_tops_display_width, 3), dtype=np.uint8)
+		black_name = np.zeros((ui_state.get_loaded_data().name_data_height, ui_state.get_loaded_data().name_data_width, 3), dtype=np.uint8)
+		black_attempt = np.zeros((ui_state.get_loaded_data().attempt_totals_height, ui_state.get_loaded_data().attempt_totals_width, 3), dtype=np.uint8)
 
-		_set_texture_if_exists("texture_tag", error_main, frame_width, frame_height)
-		_set_texture_if_exists("zones_and_tops_texture", black_side, zones_and_tops_display_width, zones_and_tops_display_height)
-		_set_texture_if_exists("name_texture", black_name, name_data_width, name_data_height)
-		if has_category_area:
-			black_cat = np.zeros((category_data_height, category_data_width, 3), dtype=np.uint8)
-			_set_texture_if_exists("category_texture", black_cat, category_data_width, category_data_height)
-		_set_texture_if_exists("attempts_total_texture", black_attempt, attempt_totals_width, attempt_totals_height)
+		_set_texture_if_exists("texture_tag", error_main, ui_state.get_loaded_data().bubble_grid_width, ui_state.get_loaded_data().bubble_grid_height)
+		_set_texture_if_exists("zones_and_tops_texture", black_side, ui_state.get_loaded_data().zones_and_tops_display_width, ui_state.get_loaded_data().zones_and_tops_display_height)
+		_set_texture_if_exists("name_texture", black_name, ui_state.get_loaded_data().name_data_width, ui_state.get_loaded_data().name_data_height)
+		if ui_state.get_loaded_data().has_category_area:
+			black_cat = np.zeros((ui_state.get_loaded_data().category_data_height, ui_state.get_loaded_data().category_data_width, 3), dtype=np.uint8)
+			_set_texture_if_exists("category_texture", black_cat, ui_state.get_loaded_data().category_data_width, ui_state.get_loaded_data().category_data_height)
+		_set_texture_if_exists("attempts_total_texture", black_attempt, ui_state.get_loaded_data().attempt_totals_width, ui_state.get_loaded_data().attempt_totals_height)
 
 		set_export_buttons_enabled(False)
 		set_ocr_population_status("OCR autofill not completed (processing error)")
@@ -573,7 +411,7 @@ if __name__ == '__main__':
 		global queue_error_scan_has_run
 		new_dir = Path(dpg.get_value("scan_dir_input")).expanduser()
 		to_process_data_folder = new_dir
-		processing_data_folder = to_process_data_folder.parent / f"processing_{instance_id}"
+		processing_data_folder = to_process_data_folder.parent / f"processing_{ui_state.get_ui_state().instance_id}"
 		if not to_process_data_folder.exists():
 			to_process_data_folder.mkdir(parents=True, exist_ok=True)
 		if not processing_data_folder.exists():
@@ -585,9 +423,7 @@ if __name__ == '__main__':
 		refresh_file_queue()
 
 
-
 	def load_file(candidate):
-		global filename, last_failed_file, amountZT, triesZT, per_boulder_ZT, frame, data, texture_data, cell_data, row_centers_sorted, col_centers_sorted, med_w, med_h, full_page, queue_error_map
 
 		if not Path(candidate).exists():
 			set_status(f"File no longer exists in queue: {Path(candidate).name}")
@@ -610,12 +446,12 @@ if __name__ == '__main__':
 		filename = claimed_path
 		show_loading_state(filename)
 		try:
-			filled_cells, warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), full_page = grader.grade_score_form(filename, show_plots=False)
+			filled_cells, (row_centers_sorted, col_centers_sorted), median_bubble_size = grader.grade_score_form(filename, show_plots=False)
 		except Exception as e:
 			failed_path = Path(filename)
 			queue_error_map.pop(candidate, None)
 			try:
-				moved_failed_path = move_file_to_folder(failed_path, errored_data_folder)
+				moved_failed_path = move_file_to_folder(failed_path, ui_state.get_ui_state().errored_data_folder)
 			except Exception as move_error:
 				set_status(f"Error reading {failed_path.name}: {e} | Could not move to errored: {move_error}")
 				show_error_state(f"{failed_path.name}: {e}")
@@ -644,11 +480,11 @@ if __name__ == '__main__':
 		frame = warped_u8
 
 		draw_data()
-		ocr_name, contestant_number, ocr_status = autofill_name_from_frame(full_page)
+		ocr_name, contestant_number, ocr_status = autofill_name()
 		category_values = None
 		category_status = None
-		if has_category_area:
-			is_male_value, age_cat_value, category_status = autofill_category_from_frame(full_page)
+		if ui_state.get_loaded_data().has_category_area:
+			is_male_value, age_cat_value, category_status = autofill_category_from_frame(ui_state.get_loaded_data().rectified_full_page_image)
 			category_values = (is_male_value, age_cat_value)
 		update_ocr_population_status(ocr_name, ocr_status, category_values, category_status)
 		update_queue_ui()
@@ -781,6 +617,10 @@ if __name__ == '__main__':
 				return
 
 	def to_debug_texture(img_bgr, overlay_rect=None):
+
+		frame_width = ui_state.get_loaded_data().bubble_grid_width
+		frame_height = ui_state.get_loaded_data().bubble_grid_height
+
 		"""Render debug image with preserved aspect ratio and optional display-space overlay."""
 		if img_bgr is None:
 			return np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
@@ -812,6 +652,10 @@ if __name__ == '__main__':
 		return np.true_divide(rgb.flatten().astype(np.float32), 255.0)
 
 	def get_debug_display_rect(img_w, img_h):
+
+		frame_width = ui_state.get_loaded_data().bubble_grid_width
+		frame_height = ui_state.get_loaded_data().bubble_grid_height
+
 		scale = min(frame_width / float(max(1, img_w)), frame_height / float(max(1, img_h)))
 		display_w = max(1.0, img_w * scale)
 		display_h = max(1.0, img_h * scale)
@@ -1065,7 +909,7 @@ if __name__ == '__main__':
 			return
 
 		try:
-			_, _, _, _, _, _, debug_steps = grader.grade_score_form(
+			_, _, _, debug_steps = grader.grade_score_form(
 				target_file,
 				show_plots=False,
 				config_name=CONFIG_FILE_NAME,
@@ -1126,58 +970,18 @@ if __name__ == '__main__':
 		# Queue behavior: use the oldest queued file (front of list), but keep it in queue until export.
 		load_file(fileList[0])
 
-	def draw_data():
-		global cell_data, full_page, amountZT, triesZT, per_boulder_ZT, frame
+	def draw_data(cell_data, bubble_grid_image, zones_and_tops_image, attempts_total_image, name_area_image, category_area_image):
 
 		amountZT, triesZT, per_boulder_ZT = grader.get_amounts_and_tries(cell_data)
 
-		draw_frame(frame)
-		draw_zones_and_tops(full_page)
-		draw_name_data(full_page)
-		if has_category_area:
-			draw_category_data(full_page)
-		draw_attempts_total(full_page)
+		draw_texture(bubble_grid_image, "bubble_grid_texture")
+		draw_zones_and_tops(zones_and_tops_image, per_boulder_ZT)
+		draw_texture(name_area_image, "name_texture")
+		if ui_state.get_loaded_data().has_category_area:
+			draw_texture(category_area_image, "category_texture")
 
-
-	def extract_zones_and_tops_area(frame):
-		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["tickbox"]
-		y_min = int(y_ratio_min * frame.shape[0])
-		y_max = int(y_ratio_max * frame.shape[0])
-		x_min = int(x_ratio_min * frame.shape[1])
-		x_max = int(x_ratio_max * frame.shape[1])
-
-		cutout = frame[y_min:y_max, x_min:x_max]
-		resized_cutout = cv2.resize(
-			cutout,
-			(zones_and_tops_base_display_width, zones_and_tops_display_height),
-			interpolation=cv2.INTER_LINEAR,
-		)
-
-		canvas = np.full((zones_and_tops_display_height, zones_and_tops_display_width, 3), 255, dtype=np.uint8)
-		canvas[:, zones_and_tops_left_padding:zones_and_tops_left_padding + zones_and_tops_base_display_width] = resized_cutout
-		return canvas
-
-	def extract_attempts_total(frame):
-		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["attempts_total"]
-		y_min = int(y_ratio_min * frame.shape[0])
-		y_max = int(y_ratio_max * frame.shape[0])
-		x_min = int(x_ratio_min * frame.shape[1])
-		x_max = int(x_ratio_max * frame.shape[1])
-
-		cutout = frame[y_min:y_max, x_min:x_max]
-		
-		return cv2.resize(cutout, (attempt_totals_width, attempt_totals_height), interpolation=cv2.INTER_LINEAR)
-
-	def extract_name_area(frame):
-		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["name"]
-		y_min = int(y_ratio_min * frame.shape[0])
-		y_max = int(y_ratio_max * frame.shape[0])
-		x_min = int(x_ratio_min * frame.shape[1])
-		x_max = int(x_ratio_max * frame.shape[1])
-
-		cutout = frame[y_min:y_max, x_min:x_max]
-
-		return cv2.resize(cutout, (name_data_width, name_data_height), interpolation=cv2.INTER_LINEAR)
+		attempts_total_image = draw_attempts_total_on_image(attempts_total_image, amountZT, triesZT)
+		draw_texture(attempts_total_image, "attempts_total_texture")
 
 	def preprocess_name_for_ocr(frame):
 		if len(frame.shape) == 3:
@@ -1190,8 +994,8 @@ if __name__ == '__main__':
 		_, thresholded = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 		return cv2.copyMakeBorder(thresholded, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
 
-	def autofill_name_from_frame(frame):
-		name_crop = extract_name_area(frame)
+	def autofill_name():
+		name_crop = ui_state.get_loaded_data().name_texture_data
 		ocr_name, contestant_number, ocr_status = tesseract_ocr.read_name_from_image(name_crop)
 		if dpg.does_item_exist("user_name"):
 			dpg.set_value("user_name", ocr_name)
@@ -1199,20 +1003,11 @@ if __name__ == '__main__':
 			dpg.set_value("contestant_number", contestant_number)
 		return ocr_name, contestant_number, ocr_status
 
-	def extract_category_area(frame):
-		x_ratio_min, x_ratio_max, y_ratio_min, y_ratio_max = ui_areas["category"]
-		y_min = int(y_ratio_min * frame.shape[0])
-		y_max = int(y_ratio_max * frame.shape[0])
-		x_min = int(x_ratio_min * frame.shape[1])
-		x_max = int(x_ratio_max * frame.shape[1])
-		cutout = frame[y_min:y_max, x_min:x_max]
-		return cv2.resize(cutout, (category_data_width, category_data_height), interpolation=cv2.INTER_LINEAR)
-
 
 	def autofill_category_from_frame(frame):
-		if not has_category_area:
+		if not ui_state.get_loaded_data().has_category_area:
 			return
-		cat_crop = extract_category_area(frame)
+		cat_crop = ui_state.get_loaded_data().category_texture_data
 		is_male, age_cat, status = tesseract_ocr.read_category_from_image(cat_crop)
 		if is_male is not None and dpg.does_item_exist("is_male"):
 			dpg.set_value("is_male", is_male)
@@ -1221,74 +1016,53 @@ if __name__ == '__main__':
 		return is_male, age_cat, status
 
 	def draw_category_data(frame):
-		global category_texture_data
-		if not has_category_area:
+		if not ui_state.get_loaded_data().has_category_area:
 			return
-		frame = frame.copy()
-		frame = extract_category_area(frame)
+		
+		category_area_image = ui_state.get_loaded_data().category_texture_data
+
 		try:
-			data = frame.flatten()
+			data = category_area_image.flatten()
 			data = np.float32(data)
 			category_texture_data = np.true_divide(data, 255.0)
 			dpg.set_value("category_texture", category_texture_data)
 		except Exception as e:
 			print(f"Error drawing category data: {e}")
 
-	def draw_attempts_total(frame):
-		global attempts_total_data, amountZT, triesZT
-		frame = frame.copy()
 
-		frame = extract_attempts_total(frame)
 
-		zone_x = int(attempt_totals_width * 0.45)
-		top_x = int(attempt_totals_width * 0.85)
-		y_amount = int(0.4 * frame.shape[0] * 0.99)
-		y_tries = int(0.8 * frame.shape[0] * 0.99)
+	def draw_attempts_total_on_image(attempts_total_image, amountZT, triesZT):
+
+		attempts_total_image = attempts_total_image.copy()
+
+		width = attempts_total_image.shape[1]
+		height = attempts_total_image.shape[0]
+
+		zone_x = int(width * 0.45)
+		top_x = int(width * 0.85)
+		y_amount = int(0.4 * height * 0.99)
+		y_tries = int(0.8 * height * 0.99)
 
 		if amountZT is not None:
-			cv2.putText(frame, str(amountZT[0]), (zone_x, y_amount), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
-			cv2.putText(frame, str(triesZT[0]), (top_x, y_amount), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+			cv2.putText(attempts_total_image, str(amountZT[0]), (zone_x, y_amount), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+			cv2.putText(attempts_total_image, str(triesZT[0]), (top_x, y_amount), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
 
 		if triesZT is not None:
-			cv2.putText(frame, str(amountZT[1]), (zone_x, y_tries), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
-			cv2.putText(frame, str(triesZT[1]), (top_x, y_tries), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+			cv2.putText(attempts_total_image, str(amountZT[1]), (zone_x, y_tries), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+			cv2.putText(attempts_total_image, str(triesZT[1]), (top_x, y_tries), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+		return attempts_total_image
+		
 		
 
-		try:
-			#data = cv2.cvtColor(frame, cv2.COLOR_rGR2RGB)  # because the camera data comes in as BGR and we need RGB
-			data = frame
-			data = data.flatten()  # flatten camera data to a 1 d stricture
-			data = np.float32(data)  # change data type to 32bit floats
-			attempts_total_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
-			dpg.set_value("attempts_total_texture", attempts_total_data)
-		except Exception as e:
-			print(f"Error processing file {filename}: {e}")
-			return
 
+	def draw_zones_and_tops(zones_and_tops_image, per_boulder_ZT):
 
+		# Make a copy to draw the numbers on without modifying the original texture data
+		zones_and_tops_image = zones_and_tops_image.copy()
 
-	def draw_name_data(frame):
-		global name_texture_data
-		frame = frame.copy()
+		zones_and_tops_width = zones_and_tops_image.shape[1]
 
-		frame = extract_name_area(frame)
-		
-		try:
-			#data = cv2.cvtColor(frame, cv2.COLOR_rGR2RGB)  # because the camera data comes in as BGR and we need RGB
-			data = frame
-			data = data.flatten()  # flatten camera data to a 1 d stricture
-			data = np.float32(data)  # change data type to 32bit floats
-			name_texture_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
-			dpg.set_value("name_texture", name_texture_data)
-		except Exception as e:
-			print(f"Error processing file {filename}: {e}")
-			return
-
-	def draw_zones_and_tops(frame):
-		global zones_and_tops_texture_data, amountZT, triesZT, per_boulder_ZT
-		frame = frame.copy()
-
-		frame = extract_zones_and_tops_area(frame)
 		left_label_x = max(6, int(frame.shape[1] * 0.02))
 
 		# Write the zones and tops amounts on the frame
@@ -1304,36 +1078,14 @@ if __name__ == '__main__':
 			if top is not None:
 				cv2.putText(frame, str(top), (top_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
 		
+		draw_texture(zones_and_tops_image, "zones_and_tops_texture")
+		
+	def draw_texture(texture_data, texture_tag):
 		try:
-			#data = cv2.cvtColor(frame, cv2.COLOR_rGR2RGB)  # because the camera data comes in as BGR and we need RGB
-			data = frame
-			data = data.flatten()  # flatten camera data to a 1 d stricture
+			data = texture_data.flatten()  # flatten camera data to a 1 d stricture
 			data = np.float32(data)  # change data type to 32bit floats
-			zones_and_tops_texture_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
-			dpg.set_value("zones_and_tops_texture", zones_and_tops_texture_data)
-		except Exception as e:
-			print(f"Error processing file {filename}: {e}")
-			return
-		
-	def draw_frame(frame):
-		global texture_data
-		
-		frame = frame.copy()
-
-		frame = draw_grid(frame)
-
-		#frame_height = int(frame.shape[0] * (frame_width / frame.shape[1]))
-		#print(frame_height)
-		#print(frame.shape)
-		frame = cv2.resize(frame, (frame_width, frame_height), interpolation=cv2.INTER_LINEAR)
-		
-		try:
-			#data = cv2.cvtColor(frame, cv2.COLOR_rGR2RGB)  # because the camera data comes in as BGR and we need RGB
-			data = frame
-			data = data.flatten()  # flatten camera data to a 1 d stricture
-			data = np.float32(data)  # change data type to 32bit floats
-			texture_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
-			dpg.set_value("texture_tag", texture_data)
+			normalized_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
+			dpg.set_value(texture_tag, normalized_data)
 		except Exception as e:
 			print(f"Error processing file {filename}: {e}")
 			return
@@ -1375,12 +1127,8 @@ if __name__ == '__main__':
 		local_x = mouse_x - image_pos[0]
 		local_y = mouse_y + image_pos[1]
 
-		# Convert UI-scaled coords back to original image coords
-		scale_x = frame.shape[1] / frame_width
-		scale_y = frame.shape[0] / frame_height
-
-		img_x = int(local_x * scale_x)
-		img_y = int(local_y * scale_y)
+		img_x = int(local_x)
+		img_y = int(local_y)
 
 		# Find the closest row and column
 		closest_row = None
@@ -1428,41 +1176,13 @@ if __name__ == '__main__':
 		
 
 	def export_to_csv(sender, callback):
-		global amountZT, triesZT, filename, last_failed_file, per_boulder_ZT, queue_error_map
-		if filename is None:
-			set_status("No active file to export.")
-			return
 
 		name = dpg.get_value("user_name")
 		contestant_number = dpg.get_value("contestant_number") if dpg.does_item_exist("contestant_number") else ""
 		sex = "M" if dpg.get_value("is_male") else "V"
 		age_cat = dpg.get_value("age_category") if dpg.does_item_exist("age_category") else ""
-		exportString = f"{name},"
-		exportString += f"{contestant_number},"
-		exportString += f"{sex},"
-		exportString += f"{age_cat},"
-		file_path = Path(filename)
-		only_file_name = file_path.name
-		exportString += only_file_name
-		for i in range(0, len(per_boulder_ZT)):
-			(zone, top) = per_boulder_ZT[i]
-			if zone is None:
-				zone = 0
-			if top is None:
-				top = 0
-			exportString += f",B{i + 1} T{top}Z{zone}"
-		exportString += f",{amountZT[1]},{amountZT[0]}"
-		exportString += f",{triesZT[1]},{triesZT[0]}"
-		csvFile.write(f"{exportString}\n")
-		csvFile.flush()
 
-		# Move the claimed source file out of this instance processing folder.
-		moved_file_name = move_file_to_folder(Path(filename), processed_data_folder)
-		if filename in fileList:
-			fileList.remove(filename)
-		queue_error_map.pop(str(file_path), None)
-		filename = None
-		last_failed_file = None
+		ui_backend.write_results_to_csv(name, contestant_number, sex, age_cat)
 
 		dpg.set_value("user_name", "")
 		if dpg.does_item_exist("contestant_number"):
@@ -1471,49 +1191,20 @@ if __name__ == '__main__':
 		get_next_file(False)
 
 	def export_to_ground_truth(sender, callback):
-		global cell_data, filename, last_failed_file, queue_error_map
-		if filename is None:
-			set_status("No active file to export.")
-			return
-
-		filled_cells = []
-		for row in range(cell_data.shape[0]):
-			for col in range(cell_data.shape[1]):
-				if cell_data[row, col] == 1:
-					filled_cells.append((row, col))
-
-		pure_file_name = Path(filename).name
-
-		output_file_name = processed_data_folder / (Path(pure_file_name).stem + ".csv")
-
-		with open(output_file_name, "w") as f:
-			for cell in filled_cells:
-				f.write(f"{cell[0]},{cell[1]}\n")
-
-
-		# Move the claimed source file out of this instance processing folder.
-		move_file_to_folder(Path(filename), processed_data_folder)
-		if filename in fileList:
-			fileList.remove(filename)
-		queue_error_map.pop(str(Path(filename)), None)
-		filename = None
-		last_failed_file = None
-
-		refresh_file_queue()
-		get_next_file(False)
+		ui_backend.export_to_ground_truth()
 
 	with dpg.texture_registry(show=False):
-		dpg.add_raw_texture(frame_width, frame_height, texture_data, tag="texture_tag",
+		dpg.add_raw_texture(ui_state.get_loaded_data().bubble_grid_texture_data.shape[1], ui_state.get_loaded_data().bubble_grid_texture_data.shape[0], ui_state.get_loaded_data().bubble_grid_texture_data, tag="texture_tag",
 							format=dpg.mvFormat_Float_rgb)
-		dpg.add_raw_texture(zones_and_tops_display_width, zones_and_tops_display_height, zones_and_tops_texture_data, tag="zones_and_tops_texture",
+		dpg.add_raw_texture(ui_state.get_loaded_data().zones_and_tops_texture_data.shape[1], ui_state.get_loaded_data().zones_and_tops_texture_data.shape[0], ui_state.get_loaded_data().zones_and_tops_texture_data, tag="zones_and_tops_texture",
 							format=dpg.mvFormat_Float_rgb)
-		dpg.add_raw_texture(name_data_width, name_data_height, name_texture_data, tag="name_texture",
+		dpg.add_raw_texture(ui_state.get_loaded_data().name_texture_data.shape[1], ui_state.get_loaded_data().name_texture_data.shape[0], ui_state.get_loaded_data().name_texture_data, tag="name_texture",
 							format=dpg.mvFormat_Float_rgb)
-		dpg.add_raw_texture(max(1, category_data_width), max(1, category_data_height), category_texture_data, tag="category_texture",
+		dpg.add_raw_texture(max(1, ui_state.get_loaded_data().category_texture_data.shape[1]), max(1, ui_state.get_loaded_data().category_texture_data.shape[0]), ui_state.get_loaded_data().category_texture_data, tag="category_texture",
 							format=dpg.mvFormat_Float_rgb)
-		dpg.add_raw_texture(attempt_totals_width, attempt_totals_height, attempts_total_data, tag="attempts_total_texture",
+		dpg.add_raw_texture(ui_state.get_loaded_data().attempts_total_texture_data.shape[1], ui_state.get_loaded_data().attempts_total_texture_data.shape[0], ui_state.get_loaded_data().attempts_total_texture_data, tag="attempts_total_texture",
 							format=dpg.mvFormat_Float_rgb)
-		dpg.add_raw_texture(frame_width, frame_height, debug_texture_data, tag="debug_texture",
+		dpg.add_raw_texture(ui_state.get_loaded_data().debug_texture_data.shape[1], ui_state.get_loaded_data().debug_texture_data.shape[0], ui_state.get_loaded_data().debug_texture_data, tag="debug_texture",
 							format=dpg.mvFormat_Float_rgb)
 							
 		
@@ -1523,17 +1214,17 @@ if __name__ == '__main__':
 
 	with dpg.window(label="resultstester", tag="mainWindow"):
 		with dpg.table(header_row=False):
-			dpg.add_table_column(width_fixed=True, init_width_or_weight=float(frame_width))
-			dpg.add_table_column(width_fixed=True, init_width_or_weight=float(side_panel_width))
+			dpg.add_table_column(width_fixed=True, init_width_or_weight=float(ui_state.get_ui_state().bubble_grid_width))
+			dpg.add_table_column(width_fixed=True, init_width_or_weight=float(ui_state.get_ui_state().side_panel_width))
 			with dpg.table_row():
 				with dpg.table_cell():
 					dpg.add_image("texture_tag", tag="main_image")
 				with dpg.table_cell():
 					with dpg.group(horizontal=True):
 						dpg.add_image("zones_and_tops_texture")
-						dpg.add_spacer(width=controls_panel_gap)
+						dpg.add_spacer(width=ui_state.get_ui_state().controls_panel_gap)
 						with dpg.group():
-							dpg.add_text(f"UI Instance: {instance_id}")
+							dpg.add_text(f"UI Instance: {ui_state.get_ui_state().instance_id}")
 							dpg.add_spacer(height=8)
 							dpg.add_text(f"Name contestant:")
 							dpg.add_input_text(tag=f"user_name")
@@ -1573,14 +1264,14 @@ if __name__ == '__main__':
 			with dpg.table_row():
 				with dpg.table_cell():
 					dpg.add_image("name_texture")
-					if has_category_area:
+					if ui_state.get_loaded_data().has_category_area:
 						dpg.add_image("category_texture")
 				with dpg.table_cell():
 					with dpg.group(horizontal=True):
 						dpg.add_image("attempts_total_texture")
 
 	show_loading_state("Starting up...")
-	set_status(f"Instance {instance_id} using claim folder: {processing_data_folder.name}")
+	set_status(f"Instance {ui_state.get_ui_state().instance_id} using claim folder: {processing_data_folder.name}")
 	refresh_file_queue()
 	update_queue_ui()
 	if filename is None and last_failed_file is None:
@@ -1602,4 +1293,4 @@ if __name__ == '__main__':
 		dpg.start_dearpygui()
 	finally:
 		dpg.destroy_context()
-		restore_processing_folder_on_exit()
+		ui_backend.restore_processing_folder_on_exit()

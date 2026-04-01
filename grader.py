@@ -64,16 +64,14 @@ def grade_score_form(image_path, show_plots, debug_mode):
 	image = cv2.imread(image_path)
 	if image is None:
 		raise FileNotFoundError(f"Could not read image: {image_path}")
-	gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 	debug_pipeline.add_debug_step(image, "Original Input")
-	debug_pipeline.add_debug_step(gray, "Grayscale Input")
 	
 	if not hasattr(cv2, "aruco"):
 		raise ImportError("cv2.aruco not found. Install opencv-contrib-python.")
 
 	try:
 		# The scoresheet, but rectified such that the content is aligned with the axes
-		scoresheet_rectified, rectified_aruco_markers = preprocess_paper.preprocess(image, gray)
+		scoresheet_rectified, rectified_aruco_markers = preprocess_paper.preprocess(image)
 		debug_pipeline.add_debug_step(scoresheet_rectified, "Preprocess Output (Rectified scoresheet)")
 
 		if show_plots:
@@ -86,6 +84,7 @@ def grade_score_form(image_path, show_plots, debug_mode):
 
 		# Now we need to extract only the attempt score region (the bubbles)
 		bubble_area_image = region_extractor.extract_region(scoresheet_rectified, "attempt_score")
+		bubble_area_image_gray = cv2.cvtColor(bubble_area_image, cv2.COLOR_BGR2GRAY)
 		debug_pipeline.add_debug_step(bubble_area_image, "Extracted Bubble Area")
 
 		if show_plots:
@@ -96,12 +95,11 @@ def grade_score_form(image_path, show_plots, debug_mode):
 			plt.axis("off")
 			plt.show()
 
-		questionCnts, thresh2, warped_u8 = bubble_grid.detect_bubbles(bubble_area_image)
-		debug_pipeline.add_debug_step(thresh2, "Bubble Threshold")
-		debug_pipeline.add_debug_step(warped_u8, "Warped U8")
+		questionCnts = bubble_grid.detect_bubbles(bubble_area_image_gray)
+		debug_pipeline.add_debug_step(bubble_area_image, "Bubble Area")
 
 
-		bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, crit = bubble_grid.compute_bubble_grid(questionCnts, thresh2, warped_u8)
+		bubbles, row_centers_sorted, col_centers_sorted, median_bubble_size = bubble_grid.compute_bubble_grid(questionCnts, bubble_area_image_gray)
 
 		if show_plots:
 			bubble_grid.plot_bubble_grid(bubble_area_image, row_centers_sorted, col_centers_sorted)
@@ -110,11 +108,8 @@ def grade_score_form(image_path, show_plots, debug_mode):
 			bubbles,
 			row_centers_sorted,
 			col_centers_sorted,
-			thresh2,
-			warped_u8,
-			med_w,
-			med_h,
-			crit,
+			bubble_area_image,
+			median_bubble_size
 		)
 
 		if debug_mode:
@@ -124,12 +119,13 @@ def grade_score_form(image_path, show_plots, debug_mode):
 			for (r, c) in filled_cells:
 				x = int(col_centers_sorted[c])
 				y = int(row_centers_sorted[r])
-				cv2.circle(final_overlay, (x, y), max(2, int(med_w * 0.8)), (0, 0, 255), 2)
+				median_bubble_width = median_bubble_size[0]
+				cv2.circle(final_overlay, (x, y), max(2, int(median_bubble_width * 0.8)), (0, 0, 255), 2)
 			debug_pipeline.add_debug_step(final_overlay, "Final Filled Bubbles Overlay")
 	except Exception as e:
 		if debug_mode:
 			raise GradingDebugError(str(e), debug_pipeline.get_debug_steps()) from e
 		raise
 
-	result = (filled_cells, warped_u8, (row_centers_sorted, col_centers_sorted), (med_w, med_h), image)
+	result = (filled_cells, (row_centers_sorted, col_centers_sorted), median_bubble_size, scoresheet_rectified)
 	return result
