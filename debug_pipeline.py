@@ -10,11 +10,13 @@ def add_debug_step(image, title=None):
 	"""Adds a debug step with the given image and title to the global debug_steps list."""
 	global debug_steps
 	if debug_steps is None:
-		raise ValueError("Debug steps list is not initialized")
-	
+		error_message = "Debug steps list is not initialized. Call reset_debug_steps() before adding debug steps."
+		raise ValueError(error_message)
+
 	if image is None:
-		raise ValueError("Image cannot be None")
-	
+		error_message = "Image cannot be None"
+		raise ValueError(error_message)
+
 	if title is None:
 		title = "Debug Step"
 
@@ -29,5 +31,4 @@ def add_debug_step(image, title=None):
 
 def get_debug_steps():
 	"""Returns the list of debug steps."""
-	global debug_steps
 	return debug_steps

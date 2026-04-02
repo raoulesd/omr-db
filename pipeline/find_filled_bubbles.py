@@ -2,7 +2,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy
-import configs.config as config
+from configs import config
 
 
 def _render_histogram_image(values, bins=64, value_range=(0, 255), title="Histogram", size=(900, 500), color=(255, 120, 0)):
@@ -10,7 +10,7 @@ def _render_histogram_image(values, bins=64, value_range=(0, 255), title="Histog
 	w, h = size
 	img = np.full((h, w, 3), 255, dtype=np.uint8)
 
-	counts, edges = np.histogram(values, bins=bins, range=value_range)
+	counts, _edges = np.histogram(values, bins=bins, range=value_range)
 	max_c = float(np.max(counts)) if np.max(counts) > 0 else 1.0
 
 	left = 60
@@ -143,10 +143,10 @@ def _render_binary_grid_image(binary_grid, title="Binary Grid", size=(1000, 700)
 			y1 = top + r * cell_h
 			x2 = min(right, x1 + cell_w)
 			y2 = min(bottom, y1 + cell_h)
-			if grid[r, c] == 1:
-				color = (0, 0, 255)
-			else:
-				color = (230, 245, 230)
+
+			# Red for filled (1), light green for empty (0)
+			color = (0, 0, 255) if grid[r, c] == 1 else (230, 245, 230)
+
 			cv2.rectangle(img, (x1, y1), (x2, y2), color, -1)
 			cv2.rectangle(img, (x1, y1), (x2, y2), (180, 180, 180), 1)
 
@@ -163,7 +163,7 @@ def plot_paper(paper, title):
 
 def plot_paper_gray(paper, title):
 	plt.figure(figsize=(8, 10))
-	plt.imshow(paper, cmap='gray', vmin=0, vmax=255)
+	plt.imshow(paper, cmap="gray", vmin=0, vmax=255)
 	plt.title(title)
 	plt.axis("off")
 	plt.show()
@@ -212,13 +212,13 @@ def savgol_threshold(values, window_length=13, polyorder=3, multiplier=1.0, debu
 def diff_with_offset(img1, img2, offset_x, offset_y):
 	img2_offset = img2.copy()
 	if offset_y > 0:
-		img2_offset = np.pad(img2_offset, ((offset_y, 0), (0, 0)), mode='constant')[:-offset_y, :]
+		img2_offset = np.pad(img2_offset, ((offset_y, 0), (0, 0)), mode="constant")[:-offset_y, :]
 	elif offset_y < 0:
-		img2_offset = np.pad(img2_offset, ((0, -offset_y), (0, 0)), mode='constant')[-offset_y:, :]
+		img2_offset = np.pad(img2_offset, ((0, -offset_y), (0, 0)), mode="constant")[-offset_y:, :]
 	if offset_x > 0:
-		img2_offset = np.pad(img2_offset, ((0, 0), (offset_x, 0)), mode='constant')[:, :-offset_x]
+		img2_offset = np.pad(img2_offset, ((0, 0), (offset_x, 0)), mode="constant")[:, :-offset_x]
 	elif offset_x < 0:
-		img2_offset = np.pad(img2_offset, ((0, 0), (0, -offset_x)), mode='constant')[:, -offset_x:]
+		img2_offset = np.pad(img2_offset, ((0, 0), (0, -offset_x)), mode="constant")[:, -offset_x:]
 
 
 
@@ -295,7 +295,7 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, bub
 
 			if difference_to_threshold > 0:
 				bubbles_status_grid[r, c] = 1
-			
+
 			mean_differences.append(np.abs(neighbourhood_mean - threshold))
 
 	if debug_steps is not None and len(mean_differences) > 0:
@@ -309,11 +309,11 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, bub
 		)
 		debug_steps.append(("Fill Detection - Mean Difference Histogram", diff_hist))
 
-	
 
-	
+
+
 	# Rectification pass:
-	
+
 	for r in range(rows):
 		for c in range(0, cols, 3):
 			neighbourhood_mean = neighbourhood_means[r,c]
@@ -333,7 +333,7 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, bub
 				# Set attempt and zone
 				bubbles_status_grid[r, c] = 1
 				bubbles_status_grid[r, c+1] = 1
-			
+
 			# If any more on this row are filled, this must have been an attempt
 			elif np.sum(bubbles_status_grid[r, c+3:]) > 0:
 				bubbles_status_grid[r, c] = 1
@@ -341,12 +341,12 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, bub
 
 
 	# Taking the bubble status grid and turning it into a list of indices
-	filled_bubbles = []
-
-	for r in range(rows):
-		for c in range(cols):
-			if bubbles_status_grid[r, c] == 1:
-				filled_bubbles.append((r, c))
+	filled_bubbles = [
+		(r, c)
+		for r in range(rows)
+		for c in range(cols)
+		if bubbles_status_grid[r, c] == 1
+	]
 
 	if debug_steps is not None:
 		grid_img = _render_binary_grid_image(
@@ -354,7 +354,7 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, bub
 			title="Final Filled Grid (Red=Filled, Green=Empty)",
 		)
 		debug_steps.append(("Fill Detection - Final Filled Grid", grid_img))
-				
+
 
 
 	return filled_bubbles

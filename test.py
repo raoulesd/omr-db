@@ -2,7 +2,8 @@ import numpy as np
 import grader
 import argparse
 import os
-import configs.config as config
+from configs import config
+from pathlib import Path
 
 # Example usage:
 # python test.py -d train
@@ -14,7 +15,7 @@ def read_ground_truth(instance_path):
 	ground_truth_path = "."+"".join(instance_path.split(".")[:-1]) + ".csv"
 	print(f"Reading ground truth from: {ground_truth_path}")
 	squares_filled = []
-	with open(ground_truth_path, "r") as f:
+	with Path.open(ground_truth_path, "r") as f:
 		for line in f:
 			if line == "\n":
 				continue
@@ -27,9 +28,9 @@ def compute_score(true_positives, false_positives, false_negatives, true_negativ
 	total = true_positives + false_positives + false_negatives
 	if total == 0:
 		return 0
-	
+
 	print(f"TP: {true_positives}, FP: {false_positives}, FN: {false_negatives}, TN: {true_negatives}")
-	
+
 	accuracy = (true_positives) / total
 	return accuracy
 
@@ -41,7 +42,7 @@ def run_on_folder(folder_path, config_name):
 	false_negatives = 0
 	true_negatives = 0
 
-	for file in os.listdir(folder_path):
+	for file in Path.iterdir(folder_path):
 		file_name = os.fsdecode(file)
 		if not file_name.endswith(".png"):
 			continue
@@ -76,12 +77,12 @@ def run_on_single_instance(instance_path, config_name):
 
 	print(f"Score: {score}")
 
-	
+
 
 def run_instance(instance_path, config_name):
 	print(f"Running on instance: {instance_path}")
 
-	(result, (row_centers_sorted, col_centers_sorted), median_bubble_size, scoresheet_rectified) = grader.grade_score_form(instance_path, show_plots=False, debug_mode=False)
+	(result, __) = grader.grade_score_form(instance_path, show_plots=False, debug_mode=False)
 
 	ground_truth = read_ground_truth(instance_path)
 
@@ -125,7 +126,7 @@ def compare_result_with_ground_truth(result, ground_truth, print_mistakes=True):
 					print(f"False positive at ({r}, {c})")
 				if false_negatives_grid[r,c]:
 					print(f"False negative at ({r}, {c})")
-	
+
 	return (true_positives, false_positives, false_negatives, true_negatives)
 
 
@@ -149,4 +150,4 @@ elif args["data"] == "bigset":
 else:
 	run_on_single_instance(args["data"], args["config"])
 
-	
+

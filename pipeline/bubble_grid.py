@@ -2,24 +2,22 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import imutils
-import configs.config as config
+from configs import config
 
-def compute_bubble_grid(questionCnts, bubble_area_image, debug_steps=None):
-	"""
-	Computes the grid layout of the detected bubble contours by clustering their centroids into ROWS and COLS using K-means.
+def compute_bubble_grid(question_contours, bubble_area_image, debug_steps=None):
+	"""Computes the grid layout of the detected bubble contours by clustering their centroids into ROWS and COLS using K-means.
 	Also estimates the median bubble size for later use in scoring.
-	
-	:param questionCnts: List of contours corresponding to detected bubbles
+
+	:param question_contours: List of contours corresponding to detected bubbles
 	:param bubble_area_image: Image of the bubble area normalized to uint8 (0..255)
 
 	:return: Tuple of (bubbles, row_centers_sorted, col_centers_sorted, median_bubble_size)
-			
+
 		- bubbles: List of dicts with keys: c (contour), cx, cy, w, h, area, row, col
 		- row_centers_sorted: Sorted array of row center positions
 		- col_centers_sorted: Sorted array of column center positions
 		- median_bubble_size: Tuple of (median_width, median_height)
 	"""
-
 	rows = config.get_property("num_boulders")
 	cols = config.get_property("num_attempts") * config.get_property("num_answers")
 
@@ -27,7 +25,7 @@ def compute_bubble_grid(questionCnts, bubble_area_image, debug_steps=None):
 
 	# --- 1) Compute centroids + basic size estimate
 	bubbles = []
-	for c in questionCnts:
+	for c in question_contours:
 		area = cv2.contourArea(c)
 		if area <= 0:
 			continue
@@ -98,14 +96,12 @@ def compute_bubble_grid(questionCnts, bubble_area_image, debug_steps=None):
 
 
 def detect_bubbles(bubble_area_image, debug_steps=None):
-	"""
-	Detects bubbles in the warped grayscale image
-	
-	:param rectified_cropped_bubble_area: Warped grayscale image of the question area
-	:return: Tuple of (questionCnts, bubble_area_image)
-			- questionCnts: List of contours corresponding to detected bubbles
-	"""
+	"""Detects bubbles in the warped grayscale image
 
+	:param rectified_cropped_bubble_area: Warped grayscale image of the question area
+	:return: Tuple of (question_contours, bubble_area_image)
+			- question_contours: List of contours corresponding to detected bubbles
+	"""
 	circularity_min = config.get_property("circularity")
 	extent_min = config.get_property("extent")
 	hull_min = config.get_property("hull")
@@ -147,10 +143,9 @@ def detect_bubbles(bubble_area_image, debug_steps=None):
 		cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
 		iterations=1
 	)
-	4
+	
 	# Optional: if the page border is thick / present, clear a small margin
 	# so it cannot appear as one giant contour
-	h, w = thresh2.shape[:2]
 	margin = 5
 	thresh2[:margin, :] = 0
 	thresh2[-margin:, :] = 0
@@ -167,7 +162,7 @@ def detect_bubbles(bubble_area_image, debug_steps=None):
 
 	hierarchy = hierarchy[0]  # (N, 4): [next, prev, first_child, parent]
 
-	questionCnts = []
+	question_contours = []
 
 	for i, c in enumerate(cnts):
 
@@ -181,7 +176,7 @@ def detect_bubbles(bubble_area_image, debug_steps=None):
 		if area < 30:
 			continue
 
-		x, y, cw, ch = cv2.boundingRect(c)
+		_x, _y, cw, ch = cv2.boundingRect(c)
 		ar = cw / float(ch)
 
 		# keep your size/aspect gate (tune)
@@ -204,7 +199,7 @@ def detect_bubbles(bubble_area_image, debug_steps=None):
 		if hull_area == 0:
 			continue
 		solidity = area / float(hull_area)
-		
+
 
 		# ---- Tune these thresholds ----
 		# Good starting points for "0"-like blobs:
@@ -215,17 +210,17 @@ def detect_bubbles(bubble_area_image, debug_steps=None):
 		if solidity < hull_min:
 			continue
 
-		questionCnts.append(c)
+		question_contours.append(c)
 
 	if debug_mode:
-		print(f"Detected bubble-like contours: {len(questionCnts)}")
+		print(f"Detected bubble-like contours: {len(question_contours)}")
 
 	if debug_steps is not None:
 		overlay = cv2.cvtColor(bubble_area_image.copy(), cv2.COLOR_GRAY2BGR)
-		cv2.drawContours(overlay, questionCnts, -1, (0, 0, 255), 1)
+		cv2.drawContours(overlay, question_contours, -1, (0, 0, 255), 1)
 		debug_steps.append(("Bubble Detection - Filtered Contours", overlay))
 
-	return questionCnts
+	return question_contours
 
 
 

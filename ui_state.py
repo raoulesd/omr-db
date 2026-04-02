@@ -3,8 +3,8 @@ import uuid
 import cv2
 import numpy as np
 import grader
-import pipeline.region_extractor as region_extractor
-import configs.config as config
+from pipeline import region_extractor
+from configs import config
 from pathlib import Path
 
 class LoadedScoreSheetData:
@@ -15,9 +15,9 @@ class LoadedScoreSheetData:
 		self.median_bubble_size = None
 		self.row_centers_sorted = None
 		self.col_centers_sorted = None
-		self.amountZT = None
-		self.triesZT = None
-		self.per_boulder_ZT = None
+		self.amount_zones_tops = None
+		self.tries_zones_tops = None
+		self.per_boulder_zones_tops = None
 		self.cell_data = None
 
 		# Display data (textures)
@@ -42,7 +42,7 @@ class LoadedScoreSheetData:
 		self.zones_and_tops_display_height = self.bubble_grid_height
 		self.zones_and_tops_base_display_width = max(
 			1,
-			int(round(self.zones_and_tops_width * (self.zones_and_tops_display_height / float(max(1, self.zones_and_tops_height)))))
+			round(self.zones_and_tops_width * (self.zones_and_tops_display_height / float(max(1, self.zones_and_tops_height))))
 		)
 		self.zones_and_tops_display_width = self.zones_and_tops_base_display_width + zones_and_tops_left_padding
 
@@ -62,7 +62,7 @@ class LoadedScoreSheetData:
 		if self.has_category_area:
 			self.category_data_width = int(config.get_property("region_original_sizes")["category"][0] * ui_scale)
 			self.category_data_height = int(config.get_property("region_original_sizes")["category"][1] * ui_scale)
-			
+
 		self.full_page_texture_data = np.zeros((self.full_page_height, self.full_page_width, 3), dtype=np.uint8)
 		self.debug_texture_data = np.zeros((self.full_page_height, self.full_page_width, 3), dtype=np.uint8)
 		self.zones_and_tops_texture_data = np.zeros((self.zones_and_tops_height, self.zones_and_tops_width, 3), dtype=np.uint8)
@@ -73,24 +73,25 @@ class LoadedScoreSheetData:
 
 
 	def set_cell_value(self, row, col, value, compute_derived_data=True):
-		"""Sets the value of a specific cell in the cell_data grid and optionally recomputes derived data like amountZT and triesZT.
+		"""Sets the value of a specific cell in the cell_data grid and optionally recomputes derived data like amount_zones_tops and tries_zones_tops.
 
 		:param row: The row index of the cell to update.
 		:param col: The column index of the cell to update.
 		:param value: The new value to set for the specified cell (e.g., 0 or 1).
-		:param compute_derived_data: If True, recomputes derived data like amountZT and triesZT after updating the cell value. Defaults to True.
-		Note that recomputing derived data can be computationally expensive, so it may be desirable to set this to False if updating multiple cells in a batch and then call compute_derived_data() once at the end."""
+		:param compute_derived_data: If True, recomputes derived data like amount_zones_tops and tries_zones_tops after updating the cell value. Defaults to True.
+		Note that recomputing derived data can be computationally expensive, so it may be desirable to set this to False if updating multiple cells in a batch and then call compute_derived_data() once at the end.
+		"""
 		if self.cell_data is not None:
 			self.cell_data[row, col] = value
 
 		# Recompute the derived ZT amounts and tries whenever a cell value changes
 		if compute_derived_data:
-			self.amountZT, self.triesZT, self.per_boulder_ZT = grader.get_amounts_and_tries(self.cell_data)
+			self.amount_zones_tops, self.tries_zones_tops, self.per_boulder_zones_tops = grader.get_amounts_and_tries(self.cell_data)
 
 	def compute_derived_data(self):
-		"""Recomputes derived data like amountZT and triesZT based on the current state of cell_data. This can be called after multiple cell updates if compute_derived_data was set to False in those updates to avoid redundant computations."""
+		"""Recomputes derived data like amount_zones_tops and tries_zones_tops based on the current state of cell_data. This can be called after multiple cell updates if compute_derived_data was set to False in those updates to avoid redundant computations."""
 		if self.cell_data is not None:
-			self.amountZT, self.triesZT, self.per_boulder_ZT = grader.get_amounts_and_tries(self.cell_data)
+			self.amount_zones_tops, self.tries_zones_tops, self.per_boulder_zones_tops = grader.get_amounts_and_tries(self.cell_data)
 
 	def clear_textures(self):
 		if self.full_page_texture_data is not None:
@@ -115,7 +116,7 @@ class LoadedScoreSheetData:
 			self.attempts_total_texture_data.fill(0)
 
 	def set_textures_from_full_page_texture_data(self, full_page_texture_data):
-		
+
 		self.bubble_grid_texture_data = region_extractor.extract_region(full_page_texture_data, "attempt_score", predetermined_size=(self.bubble_grid_width, self.bubble_grid_height))
 		self.attempts_total_texture_data = region_extractor.extract_region(full_page_texture_data, "total_scores", predetermined_size=(self.attempt_totals_width, self.attempt_totals_height))
 		self.zones_and_tops_texture_data = region_extractor.extract_region(full_page_texture_data, "boulder_score", predetermined_size=(self.zones_and_tops_width, self.zones_and_tops_height))
@@ -124,8 +125,21 @@ class LoadedScoreSheetData:
 			self.category_texture_data = region_extractor.extract_region(full_page_texture_data, "category", predetermined_size=(self.category_data_width, self.category_data_height))
 
 		self.full_page_texture_data = cv2.resize(full_page_texture_data, (self.full_page_width, self.full_page_height), interpolation=cv2.INTER_AREA)
-		
-		
+
+	def get_filled_cells(self):
+		"""Returns a list of (row, col) tuples representing the filled cells in the bubble grid based on the current cell_data."""
+		filled_cells = []
+		if self.cell_data is not None:
+			rows, cols = self.cell_data.shape
+			filled_cells = [
+				(r, c)
+				for r in range(rows)
+				for c in range(cols)
+				if self.cell_data[r, c] == 1
+			]
+		return filled_cells
+
+
 
 class UIState:
 
@@ -148,7 +162,7 @@ class UIState:
 
 
 		self.results_csv_path = Path(config.get_property("results_csv_path"))
-		self.output_csv_file = open(self.results_csv_path, "a")
+		self.output_csv_file = Path.open(self.results_csv_path, "a")
 
 
 		self.file_list = []

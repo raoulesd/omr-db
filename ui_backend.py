@@ -4,7 +4,7 @@ import ui_state
 from ui_state import get_loaded_data, get_ui_state
 from pathlib import Path
 import grader
-import configs.config as config
+from configs import config
 import tesseract_ocr
 
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
@@ -96,24 +96,24 @@ def restore_processing_folder_on_exit():
 
 
 def write_results_to_csv(name, contestant_number, gender, age_category):
-	
-	exportString = f"{name},"
-	exportString += f"{contestant_number},"
-	exportString += f"{gender},"
-	exportString += f"{age_category},"
+
+	export_string = f"{name},"
+	export_string += f"{contestant_number},"
+	export_string += f"{gender},"
+	export_string += f"{age_category},"
 	file_path = Path(get_loaded_data().filename)
 	only_file_name = file_path.name
-	exportString += only_file_name
-	for i in range(0, len(get_loaded_data().per_boulder_ZT)):
-		(zone, top) = get_loaded_data().per_boulder_ZT[i]
+	export_string += only_file_name
+	for i in range(len(get_loaded_data().per_boulder_zones_tops)):
+		(zone, top) = get_loaded_data().per_boulder_zones_tops[i]
 		if zone is None:
 			zone = 0
 		if top is None:
 			top = 0
-		exportString += f",B{i + 1} T{top}Z{zone}"
-	exportString += f",{get_loaded_data().amountZT[1]},{get_loaded_data().amountZT[0]}"
-	exportString += f",{get_loaded_data().triesZT[1]},{get_loaded_data().triesZT[0]}"
-	get_ui_state().output_csv_file.write(f"{exportString}\n")
+		export_string += f",B{i + 1} T{top}Z{zone}"
+	export_string += f",{get_loaded_data().amount_zones_tops[1]},{get_loaded_data().amount_zones_tops[0]}"
+	export_string += f",{get_loaded_data().tries_zones_tops[1]},{get_loaded_data().tries_zones_tops[0]}"
+	get_ui_state().output_csv_file.write(f"{export_string}\n")
 	get_ui_state().output_csv_file.flush()
 
 	# Move the claimed source file out of this instance processing folder.
@@ -121,7 +121,7 @@ def write_results_to_csv(name, contestant_number, gender, age_category):
 
 	if get_loaded_data().filename in get_ui_state().file_list:
 		get_ui_state().file_list.remove(get_loaded_data().filename)
-	
+
 	get_ui_state().queue_error_map.pop(str(file_path), None)
 	get_ui_state().last_failed_file = None
 
@@ -133,17 +133,13 @@ def export_to_ground_truth():
 	cell_data = get_loaded_data().cell_data
 	filename = get_loaded_data().filename
 
-	filled_cells = []
-	for row in range(cell_data.shape[0]):
-		for col in range(cell_data.shape[1]):
-			if cell_data[row, col] == 1:
-				filled_cells.append((row, col))
+	filled_cells = get_loaded_data().get_filled_cells()
 
 	pure_file_name = Path(filename).name
 
 	output_file_name = get_ui_state().processed_data_folder / (Path(pure_file_name).stem + ".csv")
 
-	with open(output_file_name, "w") as f:
+	with Path.open(output_file_name, "w") as f:
 		for cell in filled_cells:
 			f.write(f"{cell[0]},{cell[1]}\n")
 
@@ -227,7 +223,7 @@ def on_bubble_image_click(clicked_x, clicked_y):
 		get_loaded_data().set_cell_value(closest_row, closest_col, 0)
 	else:
 		get_loaded_data().set_cell_value(closest_row, closest_col, 1)
-	
+
 
 	draw_textures_on_frontend()
 
@@ -328,7 +324,7 @@ def load_file(candidate):
 
 	if ui_state.get_loaded_data().has_category_area:
 		cat_crop = ui_state.get_loaded_data().category_texture_data
-		is_male, age_cat, status = tesseract_ocr.read_category_from_image(cat_crop)
+		is_male, age_cat, _status = tesseract_ocr.read_category_from_image(cat_crop)
 		frontend.set_category(is_male, age_cat)
 		category_values = (is_male, age_cat)
 
@@ -501,7 +497,7 @@ def refresh_file_queue(sender=None, app_data=None):
 		if len(get_ui_state().file_list) > 0:
 			load_file(get_ui_state().file_list[0])
 		else:
-			frontend.set_status("Current file removed and queue is now empty.")	
+			frontend.set_status("Current file removed and queue is now empty.")
 
 	# If we were empty and new files appeared, auto-load the oldest queued file.
 	if had_empty_state and len(get_ui_state().file_list) > 0 and get_loaded_data().filename is None:

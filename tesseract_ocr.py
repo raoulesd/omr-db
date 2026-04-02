@@ -15,8 +15,8 @@ tesseract_cmd = None
 
 TESSERACT_ENV_VAR = "TESSERACT_CMD"
 COMMON_TESSERACT_PATHS = (
- 	r"C:\Program Files\Tesseract-OCR\tesseract.exe",
- 	r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+	r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+	r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
 )
 OCR_GENDER_CHAR_SUBS = str.maketrans({
 	"0": "O",
@@ -75,9 +75,7 @@ def extract_contestant_number(text):
 
 def tokenize_gender_ocr(text):
 	normalized = text.upper().translate(OCR_GENDER_CHAR_SUBS).replace("\n", " ").replace("\f", " ")
-	cleaned_chars = []
-	for char in normalized:
-		cleaned_chars.append(char if char.isalpha() else " ")
+	cleaned_chars = [char if char.isalpha() else " " for char in normalized]
 	return [token for token in "".join(cleaned_chars).split() if token]
 
 
@@ -86,9 +84,7 @@ def detect_gender_from_ocr_texts(text_candidates):
 	for raw in text_candidates:
 		joined += "".join(tokenize_gender_ocr(raw))
 
-	if "F" in joined:
-		return False
-	return True
+	return "F" not in joined
 
 
 def read_name_from_image(frame):
@@ -160,14 +156,14 @@ def read_category_from_image(frame):
 
 	# Determine age category: exact substring match first, then closest word.
 	age_cat = None
-	_AGE_CATEGORIES = ["U15", "U17", "U19", "U21"]
-	for cat in _AGE_CATEGORIES:
+	age_categories = config.get_property("age_categories")
+	for cat in age_categories:
 		if cat in text_upper:
 			age_cat = cat
 			break
 	if age_cat is None:
 		for word in text_upper.split():
-			matches = difflib.get_close_matches(word, _AGE_CATEGORIES, n=1, cutoff=0.6)
+			matches = difflib.get_close_matches(word, age_categories, n=1, cutoff=0.6)
 			if matches:
 				age_cat = matches[0]
 				break

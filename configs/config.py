@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 
 """
 This module manages the configuration files for the system.
@@ -41,7 +42,6 @@ def get_config_from_disk(config_name: str):
 
     Raises an error if the config file is not found or if the config name is empty.
     """
-
     if not config_name:
         raise ValueError("Config name cannot be empty")
 
@@ -56,44 +56,43 @@ def get_config_from_disk(config_name: str):
 
     # Check if the config file exists
     if not os.path.isfile(config_path):
-        raise FileNotFoundError(f"Config file '{config_path}' not found")
-    
+        error_message = f"Config file \"{config_path}\" not found"
+        raise FileNotFoundError(error_message)
+
     # Load the config file
-    with open(config_path, "r") as f:
+    with Path.open(config_path, "r") as f:
         config_data = json.load(f)
 
     return config_data
 
 def get_property(property_name: str):
-    """
-    Gets a specific property from the active config.
+    """Gets a specific property from the active config.
 
     Raises an error if the property is not found
     """
     global ACTIVE_CONFIG, ACTIVE_SYSTEM_CONFIG
-    
+
 
     # First check the active config for the property, then check the system config if it's not found in the active config
     if ACTIVE_CONFIG is not None and property_name in ACTIVE_CONFIG:
         return ACTIVE_CONFIG[property_name]
-    
+
     if ACTIVE_SYSTEM_CONFIG is not None and property_name in ACTIVE_SYSTEM_CONFIG:
         return ACTIVE_SYSTEM_CONFIG[property_name]
-    
-    
+
+
     # If neither the active config nor the system config has the property, raise an error
-    raise ValueError(f"Config property '{property_name}' not found in active config or system config")
+    error_message = f"Config property \"{property_name}\" not found in active config or system config"
+    raise ValueError(error_message)
 
 def has_property(property_name: str):
+    """Checks if a specific property exists in the active config or the system config.
     """
-    Checks if a specific property exists in the active config or the system config.
-    """
-    global ACTIVE_CONFIG, ACTIVE_SYSTEM_CONFIG
 
     if ACTIVE_CONFIG is not None and property_name in ACTIVE_CONFIG:
         return True
-    
+
     if ACTIVE_SYSTEM_CONFIG is not None and property_name in ACTIVE_SYSTEM_CONFIG:
         return True
-    
+
     return False

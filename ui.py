@@ -2,10 +2,10 @@ import sys
 import textwrap
 from pathlib import Path
 import dearpygui.dearpygui as dpg
-import cv2 as cv2
+import cv2
 import numpy as np
 import grader
-from configs import config as config
+from configs import config
 import ui_state
 import ui_backend
 
@@ -13,14 +13,14 @@ ui_backend.setup(sys.modules[__name__])
 
 #debug_texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
 debug_steps_cache = []
-debug_zoom = {'x0': 0.0, 'y0': 0.0, 'x1': 1.0, 'y1': 1.0}
+debug_zoom = {"x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0}
 debug_drag_start_local = None
 debug_drag_current_local = None
 debug_is_dragging = False
 debug_current_step_img = None
 
 dpg.create_context()
-dpg.create_viewport(title='Review scores', width=1400, height=1000)
+dpg.create_viewport(title="Review scores", width=1400, height=1000)
 dpg.setup_dearpygui()
 
 with dpg.theme(tag="queue_error_theme"):
@@ -184,7 +184,7 @@ def _render_message_image(width, height, title, subtitle=None, bg_color=(0, 0, 0
 		line_gap = int(28 * sub_scale)
 		start_y = title_y + 30
 		for i, line in enumerate(wrapped[:5]):
-			(line_w, line_h), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, sub_scale, sub_th)
+			(line_w, _line_h), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, sub_scale, sub_th)
 			line_x = max(10, (width - line_w) // 2)
 			line_y = start_y + i * line_gap
 			cv2.putText(img, line, (line_x, line_y), cv2.FONT_HERSHEY_SIMPLEX, sub_scale, subtitle_color, sub_th)
@@ -327,8 +327,8 @@ def to_rgb_texture(image_bgr, width, height):
 	# Fit image into the texture while preserving aspect ratio (letterbox).
 	h_src, w_src = img.shape[:2]
 	scale = min(width / float(max(1, w_src)), height / float(max(1, h_src)))
-	new_w = max(1, int(round(w_src * scale)))
-	new_h = max(1, int(round(h_src * scale)))
+	new_w = max(1, round(w_src * scale))
+	new_h = max(1, round(h_src * scale))
 	resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
 	canvas = np.zeros((height, width, 3), dtype=np.uint8)
@@ -357,7 +357,7 @@ def on_debug_step_selected(sender, app_data):
 		return
 	for idx, (title, _) in enumerate(debug_steps_cache):
 		if selected_label.endswith(title):
-			debug_zoom = {'x0': 0.0, 'y0': 0.0, 'x1': 1.0, 'y1': 1.0}
+			debug_zoom = {"x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0}
 			show_debug_step(idx)
 			return
 
@@ -376,8 +376,8 @@ def to_debug_texture(img_bgr, overlay_rect=None):
 
 	h_src, w_src = img.shape[:2]
 	scale = min(frame_width / float(max(1, w_src)), frame_height / float(max(1, h_src)))
-	new_w = max(1, int(round(w_src * scale)))
-	new_h = max(1, int(round(h_src * scale)))
+	new_w = max(1, round(w_src * scale))
+	new_h = max(1, round(h_src * scale))
 	resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
 	canvas = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
@@ -413,8 +413,8 @@ def map_debug_local_to_zoom(local_x, local_y, clamp_to_image=False):
 		return None
 
 	img_h, img_w = debug_current_step_img.shape[:2]
-	x0, y0 = debug_zoom['x0'], debug_zoom['y0']
-	x1, y1 = debug_zoom['x1'], debug_zoom['y1']
+	x0, y0 = debug_zoom["x0"], debug_zoom["y0"]
+	x1, y1 = debug_zoom["x1"], debug_zoom["y1"]
 
 	crop_w = max(1, int((x1 - x0) * img_w))
 	crop_h = max(1, int((y1 - y0) * img_h))
@@ -423,8 +423,7 @@ def map_debug_local_to_zoom(local_x, local_y, clamp_to_image=False):
 	if clamp_to_image:
 		local_x = max(dx0, min(local_x, dx0 + dw))
 		local_y = max(dy0, min(local_y, dy0 + dh))
-	else:
-		if local_x < dx0 or local_x > (dx0 + dw) or local_y < dy0 or local_y > (dy0 + dh):
+	elif local_x < dx0 or local_x > (dx0 + dw) or local_y < dy0 or local_y > (dy0 + dh):
 			return None
 
 	u = (local_x - dx0) / max(1e-9, dw)
@@ -438,7 +437,7 @@ def update_debug_coords_text(coords=None, prefix="View"):
 		return
 
 	if coords is None:
-		x_min, y_min, x_max, y_max = debug_zoom['x0'], debug_zoom['y0'], debug_zoom['x1'], debug_zoom['y1']
+		x_min, y_min, x_max, y_max = debug_zoom["x0"], debug_zoom["y0"], debug_zoom["x1"], debug_zoom["y1"]
 	else:
 		x_min, y_min, x_max, y_max = coords
 
@@ -466,7 +465,7 @@ def on_debug_coords_input_change(sender, app_data):
 		y_max = max(0.0, min(y_max, 1.0))
 		if x_min >= x_max or y_min >= y_max:
 			return
-		debug_zoom = {'x0': x_min, 'y0': y_min, 'x1': x_max, 'y1': y_max}
+		debug_zoom = {"x0": x_min, "y0": y_min, "x1": x_max, "y1": y_max}
 		render_debug_with_zoom()
 	except (ValueError, IndexError):
 		# Invalid input, silently ignore
@@ -479,10 +478,10 @@ def render_debug_with_zoom(draw_drag_rect=False):
 	img = debug_current_step_img
 	h, w = img.shape[:2]
 
-	x0 = int(debug_zoom['x0'] * w)
-	y0 = int(debug_zoom['y0'] * h)
-	x1 = int(debug_zoom['x1'] * w)
-	y1 = int(debug_zoom['y1'] * h)
+	x0 = int(debug_zoom["x0"] * w)
+	y0 = int(debug_zoom["y0"] * h)
+	x1 = int(debug_zoom["x1"] * w)
+	y1 = int(debug_zoom["y1"] * h)
 
 	x0 = max(0, min(x0, w - 1))
 	y0 = max(0, min(y0, h - 1))
@@ -515,7 +514,7 @@ def render_debug_with_zoom(draw_drag_rect=False):
 
 def reset_debug_zoom():
 	global debug_zoom
-	debug_zoom = {'x0': 0.0, 'y0': 0.0, 'x1': 1.0, 'y1': 1.0}
+	debug_zoom = {"x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0}
 	render_debug_with_zoom()
 
 def on_debug_scroll(sender, app_data):
@@ -538,8 +537,8 @@ def on_debug_scroll(sender, app_data):
 		return
 	ox, oy = mapped_point
 
-	x0, y0 = debug_zoom['x0'], debug_zoom['y0']
-	x1, y1 = debug_zoom['x1'], debug_zoom['y1']
+	x0, y0 = debug_zoom["x0"], debug_zoom["y0"]
+	x1, y1 = debug_zoom["x1"], debug_zoom["y1"]
 
 	new_x0 = max(0.0, ox - (ox - x0) * scale_factor)
 	new_x1 = min(1.0, ox + (x1 - ox) * scale_factor)
@@ -549,7 +548,7 @@ def on_debug_scroll(sender, app_data):
 	if (new_x1 - new_x0) < 0.01 or (new_y1 - new_y0) < 0.01:
 		return
 
-	debug_zoom = {'x0': new_x0, 'y0': new_y0, 'x1': new_x1, 'y1': new_y1}
+	debug_zoom = {"x0": new_x0, "y0": new_y0, "x1": new_x1, "y1": new_y1}
 	render_debug_with_zoom()
 
 def on_debug_mouse_down(sender, app_data):
@@ -590,8 +589,8 @@ def on_debug_mouse_move(sender, app_data):
 		return
 
 	img_h, img_w = debug_current_step_img.shape[:2]
-	x0, y0 = debug_zoom['x0'], debug_zoom['y0']
-	x1, y1 = debug_zoom['x1'], debug_zoom['y1']
+	x0, y0 = debug_zoom["x0"], debug_zoom["y0"]
+	x1, y1 = debug_zoom["x1"], debug_zoom["y1"]
 	crop_w = max(1, int((x1 - x0) * img_w))
 	crop_h = max(1, int((y1 - y0) * img_h))
 	dx0, dy0, dw, dh = get_debug_display_rect(crop_w, crop_h)
@@ -641,7 +640,7 @@ def on_debug_mouse_release(sender, app_data):
 		render_debug_with_zoom()
 		return
 
-	debug_zoom = {'x0': drag_x0, 'y0': drag_y0, 'x1': drag_x1, 'y1': drag_y1}
+	debug_zoom = {"x0": drag_x0, "y0": drag_y0, "x1": drag_x1, "y1": drag_y1}
 	debug_drag_start_local = None
 	debug_drag_current_local = None
 	render_debug_with_zoom()
@@ -675,10 +674,10 @@ def show_debug_screen(sender, app_data):
 	step_labels = [f"{i+1:02d} | {title}" for i, (title, _) in enumerate(debug_steps_cache)]
 
 	# Reset zoom for the new debug session
-	debug_zoom['x0'] = 0.0
-	debug_zoom['y0'] = 0.0
-	debug_zoom['x1'] = 1.0
-	debug_zoom['y1'] = 1.0
+	debug_zoom["x0"] = 0.0
+	debug_zoom["y0"] = 0.0
+	debug_zoom["x1"] = 1.0
+	debug_zoom["y1"] = 1.0
 
 	if not dpg.does_item_exist("debug_window"):
 		with dpg.window(label="Debug Pipeline", tag="debug_window", width=1400, height=900, show=False):
@@ -686,7 +685,7 @@ def show_debug_screen(sender, app_data):
 			with dpg.group(horizontal=True):
 				with dpg.group():
 					dpg.add_listbox(step_labels, tag="debug_step_list", num_items=12, width=320, callback=on_debug_step_selected)
-					dpg.add_button(label="Reset Zoom", callback=lambda s, a: reset_debug_zoom())
+					dpg.add_button(label="Reset Zoom", callback=lambda _: reset_debug_zoom())
 				with dpg.group():
 					dpg.add_input_text(default_value="View relative coords (x_min, x_max, y_min, y_max)", tag="debug_coords_mode_input", width=900, readonly=True)
 					dpg.add_input_text(default_value="(0.0000, 1.0000, 0.0000, 1.0000)", tag="debug_coords_input", width=900, callback=on_debug_coords_input_change)
@@ -700,17 +699,17 @@ def show_debug_screen(sender, app_data):
 
 def draw_data(cell_data, bubble_grid_image, zones_and_tops_image, attempts_total_image, name_area_image, category_area_image):
 
-	amountZT, triesZT, per_boulder_ZT = grader.get_amounts_and_tries(cell_data)
+	amount_zones_tops, tries_zones_tops, per_boulder_zones_tops = grader.get_amounts_and_tries(cell_data)
 
 	bubble_grid_image = draw_grid_on_image(bubble_grid_image, cell_data)
 
 	draw_texture(bubble_grid_image, "bubble_grid_texture")
-	draw_zones_and_tops(zones_and_tops_image, per_boulder_ZT)
+	draw_zones_and_tops(zones_and_tops_image, per_boulder_zones_tops)
 	draw_texture(name_area_image, "name_texture")
 	if ui_state.get_loaded_data().has_category_area:
 		draw_texture(category_area_image, "category_texture")
 
-	attempts_total_image = draw_attempts_total_on_image(attempts_total_image, amountZT, triesZT)
+	attempts_total_image = draw_attempts_total_on_image(attempts_total_image, amount_zones_tops, tries_zones_tops)
 	draw_texture(attempts_total_image, "attempts_total_texture")
 
 def fill_candidate_name(name, contestant_number):
@@ -729,7 +728,7 @@ def set_category_and_gender(is_male, age_cat):
 def draw_category_data(frame):
 	if not ui_state.get_loaded_data().has_category_area:
 		return
-	
+
 	category_area_image = ui_state.get_loaded_data().category_texture_data
 
 	try:
@@ -740,18 +739,20 @@ def draw_category_data(frame):
 	except Exception as e:
 		print(f"Error drawing category data: {e}")
 
-def get_score_property_text(property, amountZT, triesZT):
+def get_score_property_text(property, amount_zones_tops, tries_zones_tops):
 	if property == "zones":
-		return amountZT[0] if len(amountZT) > 0 else 0
-	elif property == "tops":
-		return amountZT[1] if len(amountZT) > 1 else 0
-	elif property == "att_z":
-		return triesZT[0] if len(triesZT) > 0 else 0
-	elif property == "att_t":
-		return triesZT[1] if len(triesZT) > 1 else 0
-	raise ValueError(f"Unknown property: {property}")
+		return amount_zones_tops[0] if len(amount_zones_tops) > 0 else 0
+	if property == "tops":
+		return amount_zones_tops[1] if len(amount_zones_tops) > 1 else 0
+	if property == "att_z":
+		return tries_zones_tops[0] if len(tries_zones_tops) > 0 else 0
+	if property == "att_t":
+		return tries_zones_tops[1] if len(tries_zones_tops) > 1 else 0
 
-def draw_attempts_total_on_image(attempts_total_image, amountZT, triesZT):
+	error_message = f"Unknown property: {property}"
+	raise ValueError(error_message)
+
+def draw_attempts_total_on_image(attempts_total_image, amount_zones_tops, tries_zones_tops):
 
 	zones_and_tops_indication = config.get_property("zones_and_tops_indication")
 
@@ -765,16 +766,16 @@ def draw_attempts_total_on_image(attempts_total_image, amountZT, triesZT):
 	top_y = int(0.4 * height * 0.99)
 	bottom_y = int(0.8 * height * 0.99)
 
-	cv2.putText(attempts_total_image, str(get_score_property_text(zones_and_tops_indication[0], amountZT, triesZT)), (left_x, top_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
-	cv2.putText(attempts_total_image, str(get_score_property_text(zones_and_tops_indication[1], amountZT, triesZT)), (right_x, top_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+	cv2.putText(attempts_total_image, str(get_score_property_text(zones_and_tops_indication[0], amount_zones_tops, tries_zones_tops)), (left_x, top_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+	cv2.putText(attempts_total_image, str(get_score_property_text(zones_and_tops_indication[1], amount_zones_tops, tries_zones_tops)), (right_x, top_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
 
-	cv2.putText(attempts_total_image, str(get_score_property_text(zones_and_tops_indication[2], amountZT, triesZT)), (left_x, bottom_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
-	cv2.putText(attempts_total_image, str(get_score_property_text(zones_and_tops_indication[3], amountZT, triesZT)), (right_x, bottom_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+	cv2.putText(attempts_total_image, str(get_score_property_text(zones_and_tops_indication[2], amount_zones_tops, tries_zones_tops)), (left_x, bottom_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+	cv2.putText(attempts_total_image, str(get_score_property_text(zones_and_tops_indication[3], amount_zones_tops, tries_zones_tops)), (right_x, bottom_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
 
 	return attempts_total_image
 
 
-def draw_zones_and_tops(zones_and_tops_image, per_boulder_ZT):
+def draw_zones_and_tops(zones_and_tops_image, per_boulder_zones_tops):
 
 	# Make a copy to draw the numbers on without modifying the original texture data
 	zones_and_tops_image = zones_and_tops_image.copy()
@@ -785,20 +786,20 @@ def draw_zones_and_tops(zones_and_tops_image, per_boulder_ZT):
 	left_label_x = max(6, int(zones_and_tops_width * 0.02))
 
 	# Write the zones and tops amounts on the frame
-	num_boulders = len(per_boulder_ZT)
+	num_boulders = len(per_boulder_zones_tops)
 	for b in range(num_boulders):
 		zone_x = int(zones_and_tops_width * 0.72)
 		top_x = int(zones_and_tops_width * 0.85)
 		y = int(((b+1) / num_boulders) * zones_and_tops_height * 0.99)
 		cv2.putText(zones_and_tops_image, str(b + 1), (left_label_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 2)
-		(zone, top) = per_boulder_ZT[b]
+		(zone, top) = per_boulder_zones_tops[b]
 		if zone is not None:
 			cv2.putText(zones_and_tops_image, str(zone), (zone_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
 		if top is not None:
 			cv2.putText(zones_and_tops_image, str(top), (top_x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-	
+
 	draw_texture(zones_and_tops_image, "zones_and_tops_texture")
-	
+
 def draw_texture(texture_data, texture_tag):
 	try:
 		data = texture_data.flatten()  # flatten camera data to a 1 d stricture
@@ -806,7 +807,6 @@ def draw_texture(texture_data, texture_tag):
 		normalized_data = np.true_divide(data, 255.0)  # normalize image data to prepare for GPU
 		dpg.set_value(texture_tag, normalized_data)
 	except Exception as e:
-		raise e
 		print(f"Error processing file {ui_state.get_loaded_data().filename}: {e}")
 		return
 
@@ -857,7 +857,7 @@ def on_main_frame_clicked(sender, app_data):
 
 def toggle_all_bubbles_and_markers(sender=None, app_data=None):
 	ui_backend.toggle_all_bubbles_and_markers()
-	
+
 
 def export_to_csv(sender, callback):
 
@@ -892,24 +892,23 @@ def add_raw_texture(tag, data, format=dpg.mvFormat_Float_rgb):
 
 with dpg.texture_registry(show=False):
 	add_raw_texture("bubble_grid_texture", ui_state.get_loaded_data().bubble_grid_texture_data, format=dpg.mvFormat_Float_rgb)
-	
+
 	add_raw_texture("zones_and_tops_texture", ui_state.get_loaded_data().zones_and_tops_texture_data, format=dpg.mvFormat_Float_rgb)
-	
+
 	add_raw_texture("name_texture", ui_state.get_loaded_data().name_texture_data, format=dpg.mvFormat_Float_rgb)
-	
+
 	add_raw_texture("category_texture", ui_state.get_loaded_data().category_texture_data, format=dpg.mvFormat_Float_rgb)
 
 	add_raw_texture("attempts_total_texture", ui_state.get_loaded_data().attempts_total_texture_data, format=dpg.mvFormat_Float_rgb)
 
 	add_raw_texture("debug_texture", ui_state.get_loaded_data().debug_texture_data, format=dpg.mvFormat_Float_rgb)
-						
-	
+
+
 with dpg.item_handler_registry(tag="image_handler"):
 	dpg.add_item_clicked_handler(callback=on_main_frame_clicked)
 
 
 with dpg.window(label="resultstester", tag="mainWindow"):
-	pass
 	with dpg.table(header_row=False):
 		dpg.add_table_column(width_fixed=True, init_width_or_weight=float(ui_state.get_loaded_data().bubble_grid_width))
 		dpg.add_table_column(width_fixed=True, init_width_or_weight=float(ui_state.get_loaded_data().side_panel_width))

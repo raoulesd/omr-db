@@ -1,11 +1,11 @@
 import cv2
 import matplotlib.pyplot as plt
 import debug_pipeline
-import pipeline.region_extractor as region_extractor
+from pipeline import region_extractor
 
-import pipeline.preprocess_paper_2 as preprocess_paper
-import pipeline.bubble_grid as bubble_grid
-import pipeline.find_filled_bubbles as find_filled_bubbles
+from pipeline import preprocess_paper
+from pipeline import bubble_grid
+from pipeline import find_filled_bubbles
 
 
 class GradingDebugError(RuntimeError):
@@ -22,9 +22,9 @@ def plot_paper(paper, title):
 
 def get_amounts_and_tries(cell_data):
 
-	amountZT = [0, 0]
-	triesZT = [0, 0]
-	per_boulder_ZT = []
+	amount_zones_tops = [0, 0]
+	tries_zones_tops = [0, 0]
+	per_boulder_zones_tops = []
 	num_rows = cell_data.shape[0]
 	num_cols = cell_data.shape[1]
 	for r in range(num_rows):
@@ -41,15 +41,15 @@ def get_amounts_and_tries(cell_data):
 				if is_top and top_attempts is None:
 					top_attempts = attempt_number + 1
 
-		amountZT[0] += 1 if zone_attempts is not None else 0
-		amountZT[1] += 1 if top_attempts is not None else 0
+		amount_zones_tops[0] += 1 if zone_attempts is not None else 0
+		amount_zones_tops[1] += 1 if top_attempts is not None else 0
 
-		triesZT[0] += zone_attempts if zone_attempts is not None else 0
-		triesZT[1] += top_attempts if top_attempts is not None else 0
+		tries_zones_tops[0] += zone_attempts if zone_attempts is not None else 0
+		tries_zones_tops[1] += top_attempts if top_attempts is not None else 0
 
-		per_boulder_ZT.append((zone_attempts, top_attempts))
+		per_boulder_zones_tops.append((zone_attempts, top_attempts))
 
-	return amountZT, triesZT, per_boulder_ZT
+	return amount_zones_tops, tries_zones_tops, per_boulder_zones_tops
 
 
 
@@ -58,15 +58,17 @@ def grade_score_form(image_path, show_plots=False, debug_mode=False):
 	# Load the image and convert it to grayscale
 	image = cv2.imread(image_path)
 	if image is None:
-		raise FileNotFoundError(f"Could not read image: {image_path}")
+		error_message = f"Could not read image: {image_path}"
+		raise FileNotFoundError(error_message)
 	debug_pipeline.add_debug_step(image, "Original Input")
-	
+
 	if not hasattr(cv2, "aruco"):
-		raise ImportError("cv2.aruco not found. Install opencv-contrib-python.")
+		error_message = "cv2.aruco not found. Make sure you have opencv-contrib-python installed."
+		raise ImportError(error_message)
 
 	try:
 		# The scoresheet, but rectified such that the content is aligned with the axes
-		scoresheet_rectified, rectified_aruco_markers = preprocess_paper.preprocess(image)
+		scoresheet_rectified, _rectified_aruco_markers = preprocess_paper.preprocess(image)
 		debug_pipeline.add_debug_step(scoresheet_rectified, "Preprocess Output (Rectified scoresheet)")
 
 		if show_plots:
@@ -90,11 +92,11 @@ def grade_score_form(image_path, show_plots=False, debug_mode=False):
 			plt.axis("off")
 			plt.show()
 
-		questionCnts = bubble_grid.detect_bubbles(bubble_area_image_gray)
+		question_contours = bubble_grid.detect_bubbles(bubble_area_image_gray)
 		debug_pipeline.add_debug_step(bubble_area_image, "Bubble Area")
 
 
-		bubbles, row_centers_sorted, col_centers_sorted, median_bubble_size = bubble_grid.compute_bubble_grid(questionCnts, bubble_area_image_gray)
+		bubbles, row_centers_sorted, col_centers_sorted, median_bubble_size = bubble_grid.compute_bubble_grid(question_contours, bubble_area_image_gray)
 
 		if show_plots:
 			bubble_grid.plot_bubble_grid(bubble_area_image, row_centers_sorted, col_centers_sorted)
