@@ -188,7 +188,6 @@ def savgol_threshold(values, window_length=13, polyorder=3, multiplier=1.0, debu
 	isodata_t = int(np.round(isodata_threshold(values)))
 
 	values_histogram = np.histogram(values, bins=255, range=(0, 255))
-	bins = values_histogram[1][:-1]
 	counts = values_histogram[0]
 
 	# Smooth the histogram counts using Savitzky-Golay filter
@@ -319,7 +318,6 @@ def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, bub
 		for c in range(0, cols, 3):
 			neighbourhood_mean = neighbourhood_means[r,c]
 
-			attempt = bubbles_status_grid[r, c] == 1
 			zone = bubbles_status_grid[r, c+1] == 1
 			top = bubbles_status_grid[r, c+2] == 1
 

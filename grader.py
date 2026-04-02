@@ -1,10 +1,5 @@
 import cv2
 import matplotlib.pyplot as plt
-import numpy as np
-from imutils.perspective import four_point_transform
-from imutils import contours
-import imutils
-import configs.config as config
 import debug_pipeline
 import pipeline.region_extractor as region_extractor
 
@@ -58,7 +53,7 @@ def get_amounts_and_tries(cell_data):
 
 
 
-def grade_score_form(image_path, show_plots, debug_mode):
+def grade_score_form(image_path, show_plots=False, debug_mode=False):
 
 	# Load the image and convert it to grayscale
 	image = cv2.imread(image_path)
@@ -78,7 +73,7 @@ def grade_score_form(image_path, show_plots, debug_mode):
 			# Show the result of the question area contour detection
 			plt.figure(figsize=(8, 10))
 			plt.imshow(cv2.cvtColor(scoresheet_rectified, cv2.COLOR_BGR2RGB))
-			plt.title(f"Full rectified scoresheet")
+			plt.title("Full rectified scoresheet")
 			plt.axis("off")
 			plt.show()
 
@@ -91,7 +86,7 @@ def grade_score_form(image_path, show_plots, debug_mode):
 			# Show the extracted bubble area
 			plt.figure(figsize=(8, 10))
 			plt.imshow(cv2.cvtColor(bubble_area_image, cv2.COLOR_BGR2RGB))
-			plt.title(f"Extracted Bubble Area")
+			plt.title("Extracted Bubble Area")
 			plt.axis("off")
 			plt.show()
 

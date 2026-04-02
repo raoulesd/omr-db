@@ -16,7 +16,7 @@ def add_debug_step(image, title=None):
 		raise ValueError("Image cannot be None")
 	
 	if title is None:
-		title = f"Debug Step"
+		title = "Debug Step"
 
 	# Add a number to the title based on the current number of debug steps
 	title = f"{len(debug_steps) + 1:02d} - {title}"

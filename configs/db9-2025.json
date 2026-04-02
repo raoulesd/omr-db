@@ -76,5 +76,6 @@
             1.0861459461989276,
             0.9785637727759914
         ]
-    ]
+    ],
+    "zones_and_tops_indication": ["zones", "tops", "att_z", "att_t"]
 }

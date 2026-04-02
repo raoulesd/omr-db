@@ -1,14 +1,29 @@
 import numpy as np
-import cv2
+import os
 import ui_state
 from ui_state import get_loaded_data, get_ui_state
 from pathlib import Path
-import ui as frontend
 import grader
 import configs.config as config
 import tesseract_ocr
 
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+
+CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "db9-2025")
+
+frontend = None
+
+def setup(frontend_instance):
+	global frontend
+	frontend = frontend_instance
+	config.set_active_system_config("system_config")
+	config.set_active_config(CONFIG_FILE_NAME)
+
+	ui_state.setup()
+
+	tesseract_ocr.tesseract_setup()
+
+
 
 def claim_file_for_instance(candidate):
 	source = Path(candidate)
@@ -102,13 +117,16 @@ def write_results_to_csv(name, contestant_number, gender, age_category):
 	get_ui_state().output_csv_file.flush()
 
 	# Move the claimed source file out of this instance processing folder.
-	moved_file_name = move_file_to_folder(file_path, get_ui_state().processed_data_folder)
+	get_ui_state().moved_file_name = move_file_to_folder(file_path, get_ui_state().processed_data_folder)
 
 	if get_loaded_data().filename in get_ui_state().file_list:
 		get_ui_state().file_list.remove(get_loaded_data().filename)
 	
 	get_ui_state().queue_error_map.pop(str(file_path), None)
 	get_ui_state().last_failed_file = None
+
+	refresh_file_queue()
+	get_next_file(False)
 
 def export_to_ground_truth():
 
@@ -149,12 +167,106 @@ def get_next_file(is_initialization):
 	if len(get_ui_state().file_list) == 0:
 		frontend.set_status("No files in queue. Add scans and press Refresh Queue.")
 		ui_state.reset_loaded_data()
-		frontend.update_queue_ui()
+		frontend.update_queue_ui(get_ui_state().file_list, get_loaded_data().filename, get_ui_state().last_failed_file)
 		frontend.set_export_buttons_enabled(False)
 		return
 
 	# Queue behavior: use the oldest queued file (front of list), but keep it in queue until export.
 	load_file(get_ui_state().file_list[0])
+
+def set_state_from_file(filename):
+	filled_cells, (row_centers_sorted, col_centers_sorted), median_bubble_size, scoresheet_rectified = grader.grade_score_form(filename, show_plots=False)
+
+	# We need to change the pixel coordinates to be scaled with the actual image so that they can be drawn correctly
+	ui_scale = config.get_property("ui_scale")
+	median_bubble_size = (median_bubble_size[0] * ui_scale, median_bubble_size[1] * ui_scale)
+	row_centers_sorted = [int(y * ui_scale) for y in row_centers_sorted]
+	col_centers_sorted = [int(x * ui_scale) for x in col_centers_sorted]
+
+	get_loaded_data().filename = filename
+	get_loaded_data().cell_data = np.zeros((config.get_property("num_boulders"), config.get_property("num_attempts") * config.get_property("num_answers")), dtype=np.uint8)
+	for (r, c) in filled_cells:
+		get_loaded_data().set_cell_value(r, c, 1, compute_derived_data=False)
+	get_loaded_data().compute_derived_data()
+
+	get_loaded_data().row_centers_sorted = row_centers_sorted
+	get_loaded_data().col_centers_sorted = col_centers_sorted
+	get_loaded_data().median_bubble_size = median_bubble_size
+
+	get_loaded_data().set_textures_from_full_page_texture_data(scoresheet_rectified)
+
+
+
+
+
+def on_bubble_image_click(clicked_x, clicked_y):
+
+	row_centers_sorted = get_loaded_data().row_centers_sorted
+	col_centers_sorted = get_loaded_data().col_centers_sorted
+	cell_data = get_loaded_data().cell_data
+
+	# Find the closest row and column
+	closest_row = None
+	closest_row_distance = None
+	closest_col = None
+	closest_col_distance = None
+
+	for (row_index, row) in enumerate(row_centers_sorted):
+		dist = np.abs(row-clicked_y)
+		if closest_row is None or dist < closest_row_distance:
+			closest_row = row_index
+			closest_row_distance = dist
+
+	for (col_index, col) in enumerate(col_centers_sorted):
+		dist = np.abs(col-clicked_x)
+		if closest_col is None or dist < closest_col_distance:
+			closest_col = col_index
+			closest_col_distance = dist
+
+	if cell_data[closest_row, closest_col] == 1:
+		get_loaded_data().set_cell_value(closest_row, closest_col, 0)
+	else:
+		get_loaded_data().set_cell_value(closest_row, closest_col, 1)
+	
+
+	draw_textures_on_frontend()
+
+
+def toggle_all_bubbles_and_markers():
+
+	if get_loaded_data().filename is None:
+		frontend.set_status("No active file loaded. Cannot toggle all bubbles.")
+		return
+
+	if get_loaded_data().cell_data.size == 0:
+		frontend.set_status("No bubble grid detected for current file.")
+		return
+
+	# Flip between two full debug states: everything enabled or everything disabled.
+	enable_all = not np.all(get_loaded_data().cell_data == 1)
+	fill_value = 1 if enable_all else 0
+	for row in range(get_loaded_data().cell_data.shape[0]):
+		for col in range(get_loaded_data().cell_data.shape[1]):
+			get_loaded_data().set_cell_value(row, col, fill_value, compute_derived_data=False)
+
+	# Compute the number of tops, zones, and tries for each boulder based on the cell data
+	get_loaded_data().compute_derived_data()
+
+	draw_textures_on_frontend()
+
+
+
+def draw_textures_on_frontend():
+	"""Draws all textures (bubble grid, zones/tops, name/category) on the frontend. Should be called after loading a file and setting textures in state.
+	"""
+	frontend.draw_data(
+		cell_data=get_loaded_data().cell_data,
+		bubble_grid_image=get_loaded_data().bubble_grid_texture_data,
+		zones_and_tops_image=get_loaded_data().zones_and_tops_texture_data,
+		attempts_total_image=get_loaded_data().attempts_total_texture_data,
+		name_area_image=get_loaded_data().name_texture_data,
+		category_area_image=get_loaded_data().category_texture_data,
+	)
 
 
 def load_file(candidate):
@@ -163,7 +275,7 @@ def load_file(candidate):
 		frontend.set_status(f"File no longer exists in queue: {Path(candidate).name}")
 		if candidate in get_ui_state().file_list:
 			get_ui_state().file_list.remove(candidate)
-		frontend.update_queue_ui()
+		frontend.update_queue_ui(get_ui_state().file_list, get_loaded_data().filename, get_ui_state().last_failed_file)
 		return False
 
 	claimed_path, claim_error = claim_file_for_instance(candidate)
@@ -180,10 +292,11 @@ def load_file(candidate):
 	filename = claimed_path
 	frontend.show_loading_state(filename)
 	try:
-		filled_cells, (row_centers_sorted, col_centers_sorted), median_bubble_size = grader.grade_score_form(filename, show_plots=False)
+		set_state_from_file(filename)
 	except Exception as e:
 		failed_path = Path(filename)
 		get_ui_state().queue_error_map.pop(candidate, None)
+		moved_failed_path = move_file_to_folder(failed_path, ui_state.get_ui_state().errored_data_folder)
 		try:
 			moved_failed_path = move_file_to_folder(failed_path, ui_state.get_ui_state().errored_data_folder)
 		except Exception as move_error:
@@ -199,18 +312,11 @@ def load_file(candidate):
 		refresh_file_queue()
 		return False
 
-	last_failed_file = None
+	get_ui_state().last_failed_file = None
 	get_ui_state().queue_error_map.pop(candidate, None)
 	get_ui_state().queue_error_map.pop(filename, None)
 
-	num_rows = config.get_property("num_boulders")
-	num_cols = config.get_property("num_attempts") * config.get_property("num_answers")
-
-	cell_data = np.zeros((num_rows, num_cols), dtype=np.uint8)
-	for (r, c) in filled_cells:
-		cell_data[r, c] = 1
-
-	frontend.draw_data()
+	draw_textures_on_frontend()
 
 	name_crop = ui_state.get_loaded_data().name_texture_data
 	ocr_name, contestant_number, ocr_status = tesseract_ocr.read_name_from_image(name_crop)
@@ -227,7 +333,7 @@ def load_file(candidate):
 		category_values = (is_male, age_cat)
 
 	frontend.update_ocr_population_status(ocr_name, ocr_status, category_values, category_status)
-	frontend.update_queue_ui()
+	frontend.update_queue_ui(get_ui_state().file_list, get_loaded_data().filename, get_ui_state().last_failed_file)
 	frontend.set_export_buttons_enabled(True)
 	if ocr_name:
 		frontend.set_status(f"Loaded: {Path(filename).name} | OCR: {ocr_name}")
@@ -260,7 +366,7 @@ def error_check_all_queued_files(sender=None, app_data=None):
 
 	checked_paths = list(get_ui_state().file_list)
 	failed_paths = []
-	queue_error_scan_has_run = True
+	get_ui_state().queue_error_scan_has_run = True
 	frontend.set_error_check_button_enabled(False)
 	frontend.set_error_check_progress(0, len(checked_paths), is_running=True)
 	frontend.set_status(f"Starting error check for {len(checked_paths)} queued file(s)...")
@@ -285,7 +391,7 @@ def error_check_all_queued_files(sender=None, app_data=None):
 			else:
 				get_ui_state().queue_error_map.pop(candidate, None)
 	finally:
-		frontend.update_queue_ui()
+		frontend.update_queue_ui(get_ui_state().file_list, get_loaded_data().filename, get_ui_state().last_failed_file)
 		frontend.set_error_check_button_enabled(True)
 
 	if failed_paths:
@@ -313,23 +419,6 @@ def error_check_all_queued_files(sender=None, app_data=None):
 		)
 
 
-def toggle_all_bubbles_and_markers():
-
-	if get_loaded_data().filename is None:
-		frontend.set_status("No active file loaded. Cannot toggle all bubbles.")
-		return
-
-	if get_loaded_data().cell_data.size == 0:
-		frontend.set_status("No bubble grid detected for current file.")
-		return
-
-	# Flip between two full debug states: everything enabled or everything disabled.
-	enable_all = not np.all(get_loaded_data().cell_data == 1)
-	fill_value = 1 if enable_all else 0
-	get_loaded_data().cell_data[:, :] = fill_value
-	frontend.draw_data()
-
-
 def move_file_to_folder(source_path, target_folder):
 	target_folder.mkdir(parents=True, exist_ok=True)
 	source = Path(source_path)
@@ -352,7 +441,7 @@ def refresh_file_queue(sender=None, app_data=None):
 
 	if not get_ui_state().to_process_data_folder.exists():
 		frontend.set_status(f"Scan directory does not exist: {get_ui_state().to_process_data_folder}")
-		frontend.update_queue_ui()
+		frontend.update_queue_ui(get_ui_state().file_list, get_loaded_data().filename, get_ui_state().last_failed_file)
 		return
 
 	disk_files = []
@@ -376,7 +465,7 @@ def refresh_file_queue(sender=None, app_data=None):
 
 	disk_set = set(disk_files)
 	old_set = set(get_ui_state().file_list)
-	queue_error_map = {p: message for p, message in get_ui_state().queue_error_map.items() if p in disk_set}
+	get_ui_state().queue_error_map = {p: message for p, message in get_ui_state().queue_error_map.items() if p in disk_set}
 
 	removed_files = [p for p in get_ui_state().file_list if p not in disk_set]
 	added_files = [p for p in disk_files if p not in old_set]
@@ -395,10 +484,10 @@ def refresh_file_queue(sender=None, app_data=None):
 			get_loaded_data().filename = None
 			current_removed = True
 
-	if last_failed_file is not None and not Path(last_failed_file).exists():
-		last_failed_file = None
+	if get_ui_state().last_failed_file is not None and not Path(get_ui_state().last_failed_file).exists():
+		get_ui_state().last_failed_file = None
 
-	frontend.update_queue_ui()
+	frontend.update_queue_ui(get_ui_state().file_list, get_loaded_data().filename, get_ui_state().last_failed_file)
 	if not current_removed:
 		if added_files or removed_files:
 			frontend.set_status(

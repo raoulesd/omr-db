@@ -1,8 +1,6 @@
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-from imutils.perspective import four_point_transform
-from imutils import contours
 import imutils
 import configs.config as config
 
@@ -171,8 +169,6 @@ def detect_bubbles(bubble_area_image, debug_steps=None):
 
 	questionCnts = []
 
-	img_area = h * w
-
 	for i, c in enumerate(cnts):
 
 		# Keep ONLY outer contours (parent == -1), discard inner hole contours
@@ -245,6 +241,6 @@ def plot_bubble_grid(paper, row_centers, col_centers):
 
 	plt.figure(figsize=(8, 10))
 	plt.imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
-	plt.title(f"Detected Bubble Grid")
+	plt.title("Detected Bubble Grid")
 	plt.axis("off")
 	plt.show()

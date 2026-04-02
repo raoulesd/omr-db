@@ -1,10 +1,5 @@
 import cv2
 import matplotlib.pyplot as plt
-import numpy as np
-from imutils.perspective import four_point_transform
-from imutils import contours
-import imutils
-import configs.config as config
 import pipeline.aruco_handler as aruco_handler
 
 def plot_paper(paper, title):

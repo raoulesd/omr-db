@@ -2,7 +2,6 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from imutils.perspective import four_point_transform
-from imutils import contours
 import imutils
 from configs import config as app_config
 
@@ -242,9 +241,6 @@ def preprocess(image, gray, debug_steps=None):
 		"""
 		image = warped
 		gray = image
-
-		blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-		edged = cv2.Canny(blurred, 75, 200)
 
 
 		thresh = cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]

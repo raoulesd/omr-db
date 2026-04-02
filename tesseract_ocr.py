@@ -1,6 +1,10 @@
 import os
 import shutil
 from pathlib import Path
+import difflib
+import re
+import cv2
+import ui_state
 
 try:
 	import pytesseract
@@ -93,7 +97,7 @@ def read_name_from_image(frame):
 	if tesseract_cmd is None:
 		return "", "", f"name OCR unavailable: set {TESSERACT_ENV_VAR} or install Tesseract"
 
-	processed = preprocess_name_for_ocr(frame)
+	processed = preprocess_image_for_ocr(frame)
 	ocr_candidates = []
 	number_candidates = []
 	for config in ("--oem 3 --psm 7", "--oem 3 --psm 6"):
@@ -102,7 +106,7 @@ def read_name_from_image(frame):
 			candidate = normalize_ocr_name(raw)
 			number_candidate = extract_contestant_number(raw)
 		except Exception as e:
-			print(f"Name OCR failed for {filename}: {e}")
+			print(f"Name OCR failed for {ui_state.get_loaded_data().filename}: {e}")
 			return "", "", "name OCR failed"
 		if candidate:
 			ocr_candidates.append(candidate)
@@ -124,7 +128,7 @@ def read_category_from_image(frame):
 	if tesseract_cmd is None:
 		return None, None, f"category OCR unavailable: set {TESSERACT_ENV_VAR} or install Tesseract"
 
-	processed = preprocess_name_for_ocr(frame)
+	processed = preprocess_image_for_ocr(frame)
 	ocr_images = [
 		processed,
 		cv2.bitwise_not(processed),
@@ -177,3 +181,15 @@ def read_category_from_image(frame):
 			status = "gender OCR uncertain (detected: no usable gender text)"
 
 	return is_male, age_cat, status
+
+
+def preprocess_image_for_ocr(frame):
+	if len(frame.shape) == 3:
+		gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+	else:
+		gray = frame.copy()
+
+	gray = cv2.GaussianBlur(gray, (3, 3), 0)
+	gray = cv2.resize(gray, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
+	_, thresholded = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+	return cv2.copyMakeBorder(thresholded, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)

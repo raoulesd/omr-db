@@ -1,6 +1,5 @@
 import os
 import json
-import warnings
 
 """
 This module manages the configuration files for the system.
