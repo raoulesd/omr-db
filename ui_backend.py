@@ -97,6 +97,14 @@ def restore_processing_folder_on_exit():
 
 def write_results_to_csv(name, contestant_number, gender, age_category):
 
+	# Check if we are the first to write to this file (check empty)
+	if get_ui_state().output_csv_file.tell() == 0:
+		header = "Name,Number,Gender,Category,Filename,"
+		header += ",".join([f"Boulder {i+1}" for i in range(config.get_property("num_boulders"))]) + ","
+		header += "Tops,Zones,Top Attempts,Zone Attempts\n"
+		get_ui_state().output_csv_file.write(header)
+		get_ui_state().output_csv_file.flush()
+
 	export_string = f"{name},"
 	export_string += f"{contestant_number},"
 	export_string += f"{gender},"
@@ -126,7 +134,6 @@ def write_results_to_csv(name, contestant_number, gender, age_category):
 	get_ui_state().last_failed_file = None
 
 	refresh_file_queue()
-	get_next_file(False)
 
 def export_to_ground_truth():
 
@@ -152,7 +159,6 @@ def export_to_ground_truth():
 	get_ui_state().last_failed_file = None
 
 	refresh_file_queue()
-	get_next_file(False)
 
 
 def get_next_file(is_initialization):
