@@ -9,18 +9,21 @@ from pipeline import find_filled_bubbles
 
 
 class GradingDebugError(RuntimeError):
+	"""Custom exception class for grading errors that includes debug steps for easier troubleshooting."""
+
 	def __init__(self, message, debug_steps=None):
 		super().__init__(message)
 		self.debug_steps = debug_steps if debug_steps is not None else []
 
-def plot_paper(paper, title):
-	plt.figure(figsize=(8, 10))
-	plt.imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
-	plt.title(title)
-	plt.axis("off")
-	plt.show()
 
 def get_amounts_and_tries(cell_data):
+	"""Calculate the total number of zones and tops achieved, as well as the total number of attempts for zones and tops, based on the cell data from the bubble grid.
+	:param cell_data: A 2D NumPy array where each cell contains information about whether a zone or top was achieved and on which attempt.
+	:return: A tuple containing:
+		- amount_zones_tops: A list [total_zones, total_tops] representing the total number of zones and tops achieved.
+		- tries_zones_tops: A list [zone_attempts, top_attempts] representing the total number of attempts for zones and tops.
+		- per_boulder_zones_tops: A list of tuples [(zone_attempts_boulder1, top_attempts_boulder1), (zone_attempts_boulder2, top_attempts_boulder2), ...] representing the attempts for each individual boulder.
+	"""
 
 	amount_zones_tops = [0, 0]
 	tries_zones_tops = [0, 0]
@@ -54,6 +57,17 @@ def get_amounts_and_tries(cell_data):
 
 
 def grade_score_form(image_path, show_plots=False, debug_mode=False):
+	"""Grade the score form at the given image path and return the filled bubbles, their positions, and the median bubble size. If debug_mode is True, raises a GradingDebugError with debug steps included in case of an exception.
+
+	:param image_path: The path to the image file of the score form.
+	:param show_plots: Boolean flag to indicate whether to display intermediate plots for debugging.
+	:param debug_mode: Boolean flag to indicate whether to enable debug mode, which raises GradingDebugError with debug steps.
+	:return: A tuple containing:
+		- filled_cells: A list of tuples representing the filled bubble positions.
+		- (row_centers_sorted, col_centers_sorted): Tuple of lists representing the sorted row and column centers of the bubbles.
+		- median_bubble_size: Tuple representing the median bubble size (width, height).
+		- scoresheet_rectified: The rectified scoresheet image.
+	"""
 
 	# Load the image and convert it to grayscale
 	image = cv2.imread(image_path)
@@ -96,13 +110,12 @@ def grade_score_form(image_path, show_plots=False, debug_mode=False):
 		debug_pipeline.add_debug_step(bubble_area_image, "Bubble Area")
 
 
-		bubbles, row_centers_sorted, col_centers_sorted, median_bubble_size = bubble_grid.compute_bubble_grid(question_contours, bubble_area_image_gray)
+		_bubbles, row_centers_sorted, col_centers_sorted, median_bubble_size = bubble_grid.compute_bubble_grid(question_contours, bubble_area_image_gray)
 
 		if show_plots:
 			bubble_grid.plot_bubble_grid(bubble_area_image, row_centers_sorted, col_centers_sorted)
 
-		filled_cells = find_filled_bubbles.find_filled_bubbles_alt(
-			bubbles,
+		filled_cells = find_filled_bubbles.find_filled_bubbles(
 			row_centers_sorted,
 			col_centers_sorted,
 			bubble_area_image,

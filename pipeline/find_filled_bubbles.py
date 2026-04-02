@@ -1,3 +1,6 @@
+"""find_filled_bubbles.py contains functions for determining which bubbles in the bubble grid are filled based on the pixel intensities in their neighborhood compared to a calculated threshold. The main function is find_filled_bubbles, which takes the sorted row and column centers of the bubbles, the grayscale image of the bubble area, and the median bubble size to compute a grid indicating which bubbles are filled. It uses helper functions to render debug visualizations of histograms and heatmaps, and applies a rectification pass to ensure consistency in the detected filled bubbles across attempts and zones.
+"""
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -222,7 +225,15 @@ def diff_with_offset(img1, img2, offset_x, offset_y):
 
 
 
-def find_filled_bubbles_alt(bubbles, row_centers_sorted, col_centers_sorted, bubble_area_image, median_bubble_size, debug_steps=None):
+def find_filled_bubbles(row_centers_sorted, col_centers_sorted, bubble_area_image, median_bubble_size):
+	"""Determine which bubbles are filled based on the neighborhood intensity compared to a threshold.
+
+	:param row_centers_sorted: List of y-coordinates for the centers of the bubble rows, sorted in ascending order.
+	:param col_centers_sorted: List of x-coordinates for the centers of the bubble columns, sorted in ascending order.
+	:param bubble_area_image: The grayscale image of the bubble area from which to sample pixel intensities.
+	:param median_bubble_size: Tuple (median_width, median_height) representing the typical size of a bubble in pixels.
+	:return: A list of tuples (row_index, col_index) indicating which bubbles are filled.
+	"""
 	rows = config.get_property("num_boulders")
 	cols = config.get_property("num_attempts") * config.get_property("num_answers")
 

@@ -8,7 +8,6 @@ def reset_debug_steps():
 
 def add_debug_step(image, title=None):
 	"""Adds a debug step with the given image and title to the global debug_steps list."""
-	global debug_steps
 	if debug_steps is None:
 		error_message = "Debug steps list is not initialized. Call reset_debug_steps() before adding debug steps."
 		raise ValueError(error_message)

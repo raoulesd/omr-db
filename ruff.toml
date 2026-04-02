@@ -32,6 +32,7 @@ ignore = [
     "D106",    # Missing docstring in public nested class
     "D107",    # Missing docstring in __init__
     "D200",    # One-line docstring should fit on one line
+    "D202",    # Can have blank line after function docstring
     "D203",    # Checks for docstrings on class definitions that are not preceded by a blank line.
     "D205",    # 1 blank line required between summary line and description
     "D206",    # Docstring can use tabs

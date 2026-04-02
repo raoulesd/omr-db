@@ -1,9 +1,16 @@
+"""aruco_handler.py contains functions for handling ARUCO markers, including detecting their positions in the image, rotating the image to flatten the markers, and converting between image coordinates and relative coordinates based on the marker positions. The main functions are detect_aruco_markers for finding the marker positions, rotate_image_to_flatten_aruco_markers for rotating the image to align the markers, img_coord_to_relative_coords for converting image coordinates to relative coordinates, and relative_coords_to_img_coord for converting relative coordinates back to image coordinates.
+"""
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
 def detect_aruco_markers(image):
+	"""Detect ARUCO markers in the given image and return their centers.
 
+	:param image: The input image in which to detect ARUCO markers.
+	:return: A list of tuples representing the centers of the detected ARUCO markers in the order [top_left, top_right, bottom_right, bottom_left].
+	"""
 	# First make sure the image is in grayscale
 	if len(image.shape) == 3 and image.shape[2] == 3:
 		image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -86,7 +93,12 @@ def rotate_image_to_flatten_aruco_markers(image, aruco_markers):
 	return rotated, aruco_markers_rotated
 
 def img_coord_to_relative_coords(img_coord, aruco_markers):
-	# Convert the image coordinates to relative coordinates based on the ARUCO markers
+	"""Convert image coordinates to relative coordinates based on the ARUCO markers.
+
+	:param img_coord: A tuple (x, y) representing the image coordinates to convert.
+	:param aruco_markers: A list of tuples representing the positions of the ARUCO markers in the order [top_left, top_right, bottom_right, bottom_left].
+	:return: A tuple (relative_x, relative_y) representing the relative coordinates.
+	"""
 	top_left, top_right, _bottom_right, bottom_left = aruco_markers
 	img_width = np.linalg.norm(np.array(top_right) - np.array(top_left))
 	img_height = np.linalg.norm(np.array(bottom_left) - np.array(top_left))
@@ -97,7 +109,12 @@ def img_coord_to_relative_coords(img_coord, aruco_markers):
 	return (relative_x, relative_y)
 
 def relative_coords_to_img_coord(relative_coord, aruco_markers):
-	# Convert the relative coordinates back to image coordinates based on the ARUCO markers
+	"""Convert relative coordinates back to image coordinates based on the ARUCO markers.
+
+	:param relative_coord: A tuple (relative_x, relative_y) representing the relative coordinates to convert.
+	:param aruco_markers: A list of tuples representing the positions of the ARUCO markers in the order [top_left, top_right, bottom_right, bottom_left].
+	:return: A tuple (img_x, img_y) representing the image coordinates.
+	"""
 	top_left, top_right, _bottom_right, bottom_left = aruco_markers
 	img_width = np.linalg.norm(np.array(top_right) - np.array(top_left))
 	img_height = np.linalg.norm(np.array(bottom_left) - np.array(top_left))

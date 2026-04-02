@@ -10,17 +10,10 @@ from typing import Optional
 def extract_region(image: np.ndarray, region_name: str, predetermined_size: Optional[tuple] = None) -> np.ndarray:
 	"""Extracts a specific region from the input image based on the configuration.
 
-	Args:
-		image: The input image as a NumPy array (should be rotated and flattened based on ARUCO markers).
-		region_name: The name of the region to extract (e.g., "name", "tickbox", "attempts_total").
-		predetermined_size: Optional tuple specifying the size (width, height) to resize the extracted region to.
-
-	Returns:
-		The extracted region as a NumPy array, resized to predetermined_size if provided.
-
-	Raises:
-		ValueError: If the specified region_name is not defined in the configuration.
-
+	:param image: The input image as a NumPy array (should be rotated and flattened based on ARUCO markers).
+	:param region_name: The name of the region to extract (e.g., "name", "tickbox", "attempts_total").
+	:param predetermined_size: Optional tuple specifying the size (width, height) to resize the extracted region to.
+	:return: The extracted region as a NumPy array, resized to predetermined_size if provided.
 	"""
 	# Get the coordinates for the specified region from the config
 	min, max = config.get_property(region_name + "_region")
@@ -44,14 +37,10 @@ def extract_region(image: np.ndarray, region_name: str, predetermined_size: Opti
 def extract_regions(image: np.ndarray, region_names: list, predetermined_size: Optional[tuple] = None) -> dict:
 	"""Extracts multiple regions from the input image based on the configuration.
 
-	Args:
-		image: The input image as a NumPy array (should be rotated and flattened based on ARUCO markers).
-		region_names: A list of region names to extract.
-		predetermined_size: Optional tuple specifying the size (width, height) to resize the extracted regions to.
-
-	Returns:
-		A dictionary mapping region names to their extracted NumPy array images.
-
+	:param image: The input image as a NumPy array (should be rotated and flattened based on ARUCO markers).
+	:param region_names: A list of region names to extract (e.g., ["name", "tickbox", "attempts_total"]).
+	:param predetermined_size: Optional tuple specifying the size (width, height) to resize the extracted regions to.
+	:return: A dictionary mapping region names to their extracted NumPy array images, resized to predetermined_size if provided.
 	"""
 	extracted_regions = {}
 	for region_name in region_names:

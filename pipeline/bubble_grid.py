@@ -1,3 +1,6 @@
+"""bubble_grid.py contains functions for detecting bubble contours in the warped grayscale image of the bubble area, computing the grid layout of the detected bubbles by clustering their centroids into rows and columns using K-means, and estimating the median bubble size for later use in scoring. The main functions are detect_bubbles for finding contours that correspond to bubbles based on shape features, compute_bubble_grid for clustering the detected contours into a grid and attaching row/column indices to each bubble, and plot_bubble_grid for visualizing the detected grid on the image.
+"""
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np

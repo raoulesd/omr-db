@@ -1,13 +1,8 @@
-import cv2
-import matplotlib.pyplot as plt
-from pipeline import aruco_handler
+"""preprocess_paper.py contains functions for preprocessing the input image of the paper, including converting it to grayscale, detecting ARUCO markers to find the corners of the paper, and rotating the image to ensure the paper is level. The main function is preprocess, which takes an input image and returns a rotated image along with the detected ARUCO marker positions for later use in warping and scoring.
+"""
 
-def plot_paper(paper, title):
-	plt.figure(figsize=(8, 10))
-	plt.imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
-	plt.title(title)
-	plt.axis("off")
-	plt.show()
+import cv2
+from pipeline import aruco_handler
 
 
 # Preprocess the paper by flattening it
