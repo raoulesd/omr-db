@@ -43,9 +43,8 @@ def get_config_from_disk(config_name: str):
     Raises an error if the config file is not found or if the config name is empty.
     """
     if not config_name:
-        raise ValueError("Config name cannot be empty")
-
-    global ACTIVE_CONFIGS, ACTIVE_CONFIG_NAMES
+        error_message = "Config name cannot be empty"
+        raise ValueError(error_message)
 
     # Load the config from the file
     if not config_name.endswith(".json"):
@@ -55,8 +54,8 @@ def get_config_from_disk(config_name: str):
     config_path = "./configs/" + config_name + ".json"
 
     # Check if the config file exists
-    if not os.path.isfile(config_path):
-        error_message = f"Config file \"{config_path}\" not found"
+    if not Path(config_path).is_file():
+        error_message = f'Config file "{config_path}" not found'
         raise FileNotFoundError(error_message)
 
     # Load the config file
@@ -70,8 +69,6 @@ def get_property(property_name: str):
 
     Raises an error if the property is not found
     """
-    global ACTIVE_CONFIG, ACTIVE_SYSTEM_CONFIG
-
 
     # First check the active config for the property, then check the system config if it's not found in the active config
     if ACTIVE_CONFIG is not None and property_name in ACTIVE_CONFIG:
@@ -82,13 +79,12 @@ def get_property(property_name: str):
 
 
     # If neither the active config nor the system config has the property, raise an error
-    error_message = f"Config property \"{property_name}\" not found in active config or system config"
+    error_message = f'Config property "{property_name}" not found in active config or system config'
     raise ValueError(error_message)
 
 def has_property(property_name: str):
     """Checks if a specific property exists in the active config or the system config.
     """
-
     if ACTIVE_CONFIG is not None and property_name in ACTIVE_CONFIG:
         return True
 

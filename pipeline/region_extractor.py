@@ -1,3 +1,6 @@
+"""region_extractor.py contains functions for extracting specific regions from the input image based on the configuration. It uses the ARUCO markers to determine the absolute coordinates of the regions to be extracted. The main functions are extract_region for extracting a single region and extract_regions for extracting multiple regions at once.
+"""
+
 from configs import config
 from pipeline import aruco_handler
 import cv2

@@ -73,21 +73,21 @@ def rotate_image_to_flatten_aruco_markers(image, aruco_markers):
 
 	(h, w) = image.shape[:2]
 	center = (w // 2, h // 2)
-	M = cv2.getRotationMatrix2D(center, angle, 1.0)
-	rotated = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+	m = cv2.getRotationMatrix2D(center, angle, 1.0)
+	rotated = cv2.warpAffine(image, m, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
 	aruco_markers_rotated = []
 
 	for marker in aruco_markers:
-		x = int(M[0, 0] * marker[0] + M[0, 1] * marker[1] + M[0, 2])
-		y = int(M[1, 0] * marker[0] + M[1, 1] * marker[1] + M[1, 2])
+		x = int(m[0, 0] * marker[0] + m[0, 1] * marker[1] + m[0, 2])
+		y = int(m[1, 0] * marker[0] + m[1, 1] * marker[1] + m[1, 2])
 		aruco_markers_rotated.append((x, y))
 
 	return rotated, aruco_markers_rotated
 
 def img_coord_to_relative_coords(img_coord, aruco_markers):
 	# Convert the image coordinates to relative coordinates based on the ARUCO markers
-	top_left, top_right, bottom_right, bottom_left = aruco_markers
+	top_left, top_right, _bottom_right, bottom_left = aruco_markers
 	img_width = np.linalg.norm(np.array(top_right) - np.array(top_left))
 	img_height = np.linalg.norm(np.array(bottom_left) - np.array(top_left))
 

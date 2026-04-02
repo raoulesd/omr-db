@@ -8,6 +8,8 @@ from configs import config
 from pathlib import Path
 
 class LoadedScoreSheetData:
+	"""LoadedScoreSheetData holds the data related to the currently loaded score sheet, including both the raw extracted data and the processed textures for display in the UI. This class is designed to be a single source of truth for all data related to the currently loaded score sheet.
+	"""
 
 	def __init__(self):
 		self.filename = None
@@ -142,6 +144,8 @@ class LoadedScoreSheetData:
 
 
 class UIState:
+	"""UIState manages the state of the user interface, in terms of things that are not specific to a single loaded score sheet.
+	"""
 
 	def __init__(self):
 

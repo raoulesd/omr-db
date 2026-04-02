@@ -29,11 +29,11 @@ def compute_bubble_grid(question_contours, bubble_area_image, debug_steps=None):
 		area = cv2.contourArea(c)
 		if area <= 0:
 			continue
-		M = cv2.moments(c)
-		if M["m00"] == 0:
+		m = cv2.moments(c)
+		if m["m00"] == 0:
 			continue
-		cx = M["m10"] / M["m00"]
-		cy = M["m01"] / M["m00"]
+		cx = m["m10"] / m["m00"]
+		cy = m["m01"] / m["m00"]
 		x, y, w, h = cv2.boundingRect(c)
 		bubbles.append({
 			"c": c,
@@ -45,7 +45,8 @@ def compute_bubble_grid(question_contours, bubble_area_image, debug_steps=None):
 		})
 
 	if len(bubbles) < 10:
-		raise RuntimeError("Too few bubble contours found to infer a grid.")
+		error_message = f"Too few bubble contours found to infer a grid. Found: {len(bubbles)} contours."
+		raise RuntimeError(error_message)
 
 	med_w = int(np.median([b["w"] for b in bubbles]))
 	med_h = int(np.median([b["h"] for b in bubbles]))
@@ -143,7 +144,7 @@ def detect_bubbles(bubble_area_image, debug_steps=None):
 		cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
 		iterations=1
 	)
-	
+
 	# Optional: if the page border is thick / present, clear a small margin
 	# so it cannot appear as one giant contour
 	margin = 5
