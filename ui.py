@@ -8,11 +8,11 @@ import grader
 from configs import config
 import ui_state
 import ui_backend
+import debug_pipeline
 
 ui_backend.setup(sys.modules[__name__])
 
 #debug_texture_data = np.zeros((frame_height * frame_width * 3,), dtype=np.float32)
-debug_steps_cache = []
 debug_zoom = {"x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0}
 debug_drag_start_local = None
 debug_drag_current_local = None
@@ -342,20 +342,24 @@ def to_rgb_texture(image_bgr, width, height):
 
 def show_debug_step(step_index):
 	global debug_current_step_img
-	if not debug_steps_cache:
-		return
-	idx = max(0, min(step_index, len(debug_steps_cache) - 1))
-	title, img = debug_steps_cache[idx]
+
+	debug_steps = debug_pipeline.get_debug_steps()
+
+	idx = max(0, min(step_index, len(debug_steps) - 1))
+	title, img = debug_steps[idx]
 	debug_current_step_img = img
 	dpg.set_value("debug_step_title", title)
 	render_debug_with_zoom()
 
 def on_debug_step_selected(sender, app_data):
 	global debug_zoom
+
+	debug_steps = debug_pipeline.get_debug_steps()
+
 	selected_label = dpg.get_value("debug_step_list")
 	if not selected_label:
 		return
-	for idx, (title, _) in enumerate(debug_steps_cache):
+	for idx, (title, _) in enumerate(debug_steps):
 		if selected_label.endswith(title):
 			debug_zoom = {"x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0}
 			show_debug_step(idx)
@@ -363,8 +367,8 @@ def on_debug_step_selected(sender, app_data):
 
 def to_debug_texture(img_bgr, overlay_rect=None):
 
-	frame_width = ui_state.get_loaded_data().bubble_grid_width
-	frame_height = ui_state.get_loaded_data().bubble_grid_height
+	frame_width = ui_state.get_loaded_data().full_page_width
+	frame_height = ui_state.get_loaded_data().full_page_height
 
 	"""Render debug image with preserved aspect ratio and optional display-space overlay."""
 	if img_bgr is None:
@@ -653,25 +657,13 @@ def show_debug_screen(sender, app_data):
 		set_status("No active file for debug view.")
 		return
 
-	try:
-		_, _, _, debug_steps = grader.grade_score_form(
-			target_file,
-			show_plots=False,
-			debug_mode=True
-		)
-	except grader.GradingDebugError as e:
-		debug_steps = e.debug_steps
-		set_status(f"Debug captured from failed run: {e}")
-	except Exception as e:
-		set_status(f"Could not build debug view: {e}")
-		return
+	debug_steps = debug_pipeline.get_debug_steps()
 
 	if not debug_steps:
 		set_status("No debug steps captured for this form.")
 		return
 
-	debug_steps_cache = debug_steps
-	step_labels = [f"{i+1:02d} | {title}" for i, (title, _) in enumerate(debug_steps_cache)]
+	step_labels = [f"{i+1:02d} | {title}" for i, (title, _) in enumerate(debug_steps)]
 
 	# Reset zoom for the new debug session
 	debug_zoom["x0"] = 0.0
@@ -881,6 +873,9 @@ def export_to_ground_truth(sender, callback):
 def error_check_all_queued_files(sender, callback):
 	ui_backend.error_check_all_queued_files()
 
+def redetect_bubbles(sender, callback):
+	ui_backend.redetect_bubbles()
+
 def add_raw_texture(tag, data, format=dpg.mvFormat_Float_rgb):
 	try:
 		data_f32 = np.float32(data)
@@ -901,6 +896,7 @@ with dpg.texture_registry(show=False):
 
 	add_raw_texture("attempts_total_texture", ui_state.get_loaded_data().attempts_total_texture_data, format=dpg.mvFormat_Float_rgb)
 
+	print(f"Creating a debug texture with size ({ui_state.get_loaded_data().full_page_width}x{ui_state.get_loaded_data().full_page_height})")
 	add_raw_texture("debug_texture", ui_state.get_loaded_data().debug_texture_data, format=dpg.mvFormat_Float_rgb)
 
 
@@ -953,6 +949,7 @@ with dpg.window(label="resultstester", tag="mainWindow"):
 						dpg.add_spacer(height=20)
 						dpg.add_text("DANGER ZONE BELOW", color=(255, 0, 0))
 						dpg.add_button(label="Toggle ALL bubbles", tag="toggle_all_bubbles_button", callback=toggle_all_bubbles_and_markers)
+						dpg.add_button(label="Redetect bubbles", tag="redetect_bubbles_button", callback=redetect_bubbles)
 						dpg.add_spacer(height=10)
 						dpg.add_button(label="Error check ALL (will stall UI)", tag="error_check_all_button", callback=error_check_all_queued_files)
 						dpg.add_text("Error check idle", tag="error_check_progress_text", wrap=240)

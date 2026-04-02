@@ -170,6 +170,16 @@ def get_next_file(is_initialization):
 	# Queue behavior: use the oldest queued file (front of list), but keep it in queue until export.
 	load_file(get_ui_state().file_list[0])
 
+def redetect_bubbles():
+	if get_loaded_data().filename is None:
+		frontend.set_status("No active file loaded. Cannot redetect bubbles.")
+		return
+
+	filename = get_loaded_data().filename
+	set_state_from_file(filename)
+	draw_textures_on_frontend()
+	frontend.set_status(f"Redetected bubbles for current file: {Path(filename).name}")
+
 def set_state_from_file(filename):
 	filled_cells, (row_centers_sorted, col_centers_sorted), median_bubble_size, scoresheet_rectified = grader.grade_score_form(filename, show_plots=False)
 

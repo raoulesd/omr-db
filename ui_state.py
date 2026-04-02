@@ -37,8 +37,6 @@ class LoadedScoreSheetData:
 		self.zones_and_tops_width = int(config.get_property("region_original_sizes")["boulder_score"][0] * ui_scale)
 		self.zones_and_tops_height = int(config.get_property("region_original_sizes")["boulder_score"][1] * ui_scale)
 
-		print(f"Calculated zones and tops display width: {self.zones_and_tops_width} and height: {self.zones_and_tops_height}")
-
 		zones_and_tops_left_padding = 48
 		# Display zones/tops at main-frame height while keeping its original aspect ratio.
 		self.zones_and_tops_display_height = self.bubble_grid_height

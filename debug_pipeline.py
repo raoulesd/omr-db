@@ -20,9 +20,6 @@ def add_debug_step(image, title=None):
 	if title is None:
 		title = "Debug Step"
 
-	# Add a number to the title based on the current number of debug steps
-	title = f"{len(debug_steps) + 1:02d} - {title}"
-
 	img = image.copy()
 	if len(img.shape) == 2:
 		img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
