@@ -5,6 +5,15 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
+def can_find_aruco_markers(image):
+	"""Checks if the necessary ARUCO markers can be detected in the given image.
+
+	:param image: The input image in which to detect ARUCO markers.
+	:return: True if the necessary ARUCO markers are detected, False otherwise.
+	"""
+	markers = detect_aruco_markers(image)
+	return markers is not None
+
 def detect_aruco_markers(image):
 	"""Detect ARUCO markers in the given image and return their centers.
 
@@ -50,8 +59,7 @@ def detect_aruco_markers(image):
 			marker_centers.append((center_x, center_y))
 
 	if marker_centers is None or len(marker_centers) != 4:
-		error_message = f"Invalid ARUCO markers detected. Found: {len(marker_centers) if marker_centers is not None else 0} markers. Expected: 4 markers."
-		raise ValueError(error_message)
+		return None
 
 	# Sort the marker centers by their position
 	top_left = min(marker_centers, key=lambda x: x[0] + x[1])

@@ -7,6 +7,8 @@ import numpy as np
 import scipy
 from configs import config
 
+import debug_pipeline
+
 
 def _render_histogram_image(values, bins=64, value_range=(0, 255), title="Histogram", size=(900, 500), color=(255, 120, 0)):
 	"""Render a simple histogram into a BGR image for debug-step visualization."""
@@ -186,7 +188,7 @@ def isodata_threshold(values):
 
 	return threshold
 
-def savgol_threshold(values, window_length=13, polyorder=3, multiplier=1.0, debug_steps=None):
+def savgol_threshold(values, window_length=13, polyorder=3, multiplier=1.0):
 
 	isodata_t = int(np.round(isodata_threshold(values)))
 
@@ -198,17 +200,16 @@ def savgol_threshold(values, window_length=13, polyorder=3, multiplier=1.0, debu
 	y = smooth_counts
 	threshold = np.argmin(y[isodata_t:isodata_t+15]) + isodata_t
 
-	if debug_steps is not None:
-		graph = _render_hist_with_curve_image(
-			counts,
-			y,
-			marks=[
-				(isodata_t, (0, 180, 0)),
-				(threshold, (0, 140, 255)),
-			],
-			title="Threshold Selection - Histogram + Smoothed Curve",
-		)
-		debug_steps.append(("Fill Detection - Savgol Threshold Graph", graph))
+	graph = _render_hist_with_curve_image(
+		counts,
+		y,
+		marks=[
+			(isodata_t, (0, 180, 0)),
+			(threshold, (0, 140, 255)),
+		],
+		title="Threshold Selection - Histogram + Smoothed Curve",
+	)
+	debug_pipeline.add_debug_step(graph, title="Fill Detection - Savgol Threshold Graph")
 
 	return threshold
 
@@ -268,9 +269,9 @@ def find_filled_bubbles(row_centers_sorted, col_centers_sorted, bubble_area_imag
 	bubbles_status_grid = np.zeros(shape=(rows, cols), dtype=np.uint8)
 
 	threshold = isodata_threshold(neighbourhood_means.flatten())
-	threshold = savgol_threshold(neighbourhood_means.flatten(), debug_steps=debug_steps)
+	threshold = savgol_threshold(neighbourhood_means.flatten())
 
-	if debug_steps is not None and sample_neighbourhood is not None:
+	if sample_neighbourhood is not None:
 		# 2) Histogram of one sample neighbourhood (original vs sorted-selection)
 		h1 = _render_histogram_image(
 			sample_neighbourhood,
@@ -286,15 +287,16 @@ def find_filled_bubbles(row_centers_sorted, col_centers_sorted, bubble_area_imag
 			title="Neighbourhood Histogram - Sorted Subset",
 			color=(255, 120, 0),
 		)
-		debug_steps.append(("Fill Detection - Neighbourhood Histogram (Original)", h1))
-		debug_steps.append(("Fill Detection - Neighbourhood Histogram (Sorted Subset)", h2))
+
+		debug_pipeline.add_debug_step(h1, title="Fill Detection - Neighbourhood Histogram (Original)")
+		debug_pipeline.add_debug_step(h2, title="Fill Detection - Neighbourhood Histogram (Sorted Subset)")
 
 		# 3) Neighbourhood means as a 2D heatmap is more informative than a flat histogram.
 		nm_hist = _render_grid_heatmap_image(
 			neighbourhood_means,
 			title="Neighbourhood Means Heatmap",
 		)
-		debug_steps.append(("Fill Detection - Neighbourhood Means Histogram", nm_hist))
+		debug_pipeline.add_debug_step(nm_hist, title="Fill Detection - Neighbourhood Means Histogram")
 
 	mean_differences = []
 
@@ -309,7 +311,7 @@ def find_filled_bubbles(row_centers_sorted, col_centers_sorted, bubble_area_imag
 
 			mean_differences.append(np.abs(neighbourhood_mean - threshold))
 
-	if debug_steps is not None and len(mean_differences) > 0:
+	if len(mean_differences) > 0:
 		# 1) Histogram of mean differences to threshold
 		diff_hist = _render_histogram_image(
 			mean_differences,
@@ -318,7 +320,7 @@ def find_filled_bubbles(row_centers_sorted, col_centers_sorted, bubble_area_imag
 			title="Histogram of Mean Differences to Threshold",
 			color=(0, 200, 120),
 		)
-		debug_steps.append(("Fill Detection - Mean Difference Histogram", diff_hist))
+		debug_pipeline.add_debug_step(diff_hist, title="Fill Detection - Mean Difference Histogram")
 
 
 
@@ -359,12 +361,11 @@ def find_filled_bubbles(row_centers_sorted, col_centers_sorted, bubble_area_imag
 		if bubbles_status_grid[r, c] == 1
 	]
 
-	if debug_steps is not None:
-		grid_img = _render_binary_grid_image(
-			bubbles_status_grid,
-			title="Final Filled Grid (Red=Filled, Green=Empty)",
-		)
-		debug_steps.append(("Fill Detection - Final Filled Grid", grid_img))
+	grid_img = _render_binary_grid_image(
+		bubbles_status_grid,
+		title="Final Filled Grid (Red=Filled, Green=Empty)",
+	)
+	debug_pipeline.add_debug_step(grid_img, title="Fill Detection - Final Filled Grid")
 
 
 

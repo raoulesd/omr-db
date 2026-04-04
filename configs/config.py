@@ -10,6 +10,10 @@ while the system-wide config is meant to hold properties that are shared across 
 The format-specific config will override the system-wide config if there are any overlapping properties.
 """
 
+BASE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = BASE_DIR.parent
+CONFIG_DIR = PROJECT_ROOT / "configs"
+
 ACTIVE_CONFIG = None
 ACTIVE_CONFIG_NAME = None
 ACTIVE_SYSTEM_CONFIG = None
@@ -51,15 +55,15 @@ def get_config_from_disk(config_name: str):
         config_path = config_name + ".json"
     else:
         config_path = config_name
-    config_path = "./configs/" + config_name + ".json"
+    config_path = CONFIG_DIR / (config_name + ".json")
 
     # Check if the config file exists
-    if not Path(config_path).is_file():
+    if not config_path.is_file():
         error_message = f'Config file "{config_path}" not found'
         raise FileNotFoundError(error_message)
 
     # Load the config file
-    with Path.open(config_path, "r") as f:
+    with config_path.open("r") as f:
         config_data = json.load(f)
 
     return config_data
@@ -77,7 +81,6 @@ def get_property(property_name: str):
     if ACTIVE_SYSTEM_CONFIG is not None and property_name in ACTIVE_SYSTEM_CONFIG:
         return ACTIVE_SYSTEM_CONFIG[property_name]
 
-
     # If neither the active config nor the system config has the property, raise an error
     error_message = f'Config property "{property_name}" not found in active config or system config'
     raise ValueError(error_message)
@@ -92,3 +95,20 @@ def has_property(property_name: str):
         return True
 
     return False
+
+def print_properties():
+    """Prints all properties from the active config and the system config, with the active config properties taking precedence over the system config properties in case of overlap.
+    """
+    print("Active Config Properties:")
+    if ACTIVE_CONFIG is not None:
+        for key, value in ACTIVE_CONFIG.items():
+            print(f"{key}: {value}")
+    else:
+        print("No active config set")
+
+    print("\nSystem Config Properties:")
+    if ACTIVE_SYSTEM_CONFIG is not None:
+        for key, value in ACTIVE_SYSTEM_CONFIG.items():
+            print(f"{key}: {value}")
+    else:
+        print("No active system config set")

@@ -9,7 +9,7 @@ import tesseract_ocr
 
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
-CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "db9-2025")
+CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "db9-2024")
 
 frontend = None
 
@@ -312,10 +312,12 @@ def load_file(candidate):
 		try:
 			moved_failed_path = move_file_to_folder(failed_path, ui_state.get_ui_state().errored_data_folder)
 		except Exception as move_error:
+			raise e
 			frontend.set_status(f"Error reading {failed_path.name}: {e} | Could not move to errored: {move_error}")
 			frontend.show_error_state(f"{failed_path.name}: {e}")
 			ui_state.get_ui_state().last_failed_file = str(failed_path)
 		else:
+			raise e
 			frontend.set_status(f"Error reading {failed_path.name}: {e} | Moved to errored: {moved_failed_path.name}")
 			frontend.show_error_state(f"{failed_path.name}: {e}")
 			ui_state.get_ui_state().last_failed_file = str(moved_failed_path)

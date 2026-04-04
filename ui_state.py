@@ -6,6 +6,7 @@ import grader
 from pipeline import region_extractor
 from configs import config
 from pathlib import Path
+from pipeline import aruco_handler
 
 class LoadedScoreSheetData:
 	"""LoadedScoreSheetData holds the data related to the currently loaded score sheet, including both the raw extracted data and the processed textures for display in the UI. This class is designed to be a single source of truth for all data related to the currently loaded score sheet.
