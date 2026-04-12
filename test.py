@@ -42,8 +42,8 @@ def run_on_folder(folder_path, config_name):
 	false_negatives = 0
 	true_negatives = 0
 
-	for file in Path.iterdir(folder_path):
-		file_name = os.fsdecode(file)
+	for file in Path(folder_path).iterdir():
+		file_name = file.name
 		if not file_name.endswith(".png"):
 			continue
 
@@ -82,7 +82,7 @@ def run_on_single_instance(instance_path, config_name):
 def run_instance(instance_path, config_name):
 	print(f"Running on instance: {instance_path}")
 
-	(result, __) = grader.grade_score_form(instance_path, show_plots=False, debug_mode=False)
+	(result, _, _, _) = grader.grade_score_form(instance_path, show_plots=False, debug_mode=False)
 
 	ground_truth = read_ground_truth(instance_path)
 
