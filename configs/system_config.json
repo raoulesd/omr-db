@@ -1,0 +1,13 @@
+{
+	"scanning_data_folder": "./process_data/to_process",
+	"processed_data_folder": "./process_data/processed",
+	"errored_data_folder": "./process_data/errored",
+	"results_csv_path": "./results.csv",
+	"isodata_epsilon": 0.01,
+	"num_answers": 3,
+	"circularity": 0.55,
+	"extent": 0.30,
+	"hull": 0.80,
+	"debug_mode": false,
+	"ui_scale": 0.5
+}
