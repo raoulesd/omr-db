@@ -885,6 +885,20 @@ def add_raw_texture(tag, data, format=dpg.mvFormat_Float_rgb):
 	except Exception as e:
 		print(f"Error adding raw texture {tag}: {e}")
 
+def on_scan_directory_chosen(sender, app_data):
+	ui_backend.apply_scan_directory_and_refresh(Path(app_data['file_path_name']))
+	# Update the text display for the chosen directory
+	dpg.set_value("scan_dir_text", config.get_property("scanning_data_folder"))
+
+def on_processed_directory_chosen(sender, app_data):
+	ui_backend.apply_processed_directory_and_refresh(Path(app_data['file_path_name']))
+	dpg.set_value("processed_dir_text", config.get_property("processed_data_folder"))
+
+def on_errored_directory_chosen(sender, app_data):
+	ui_backend.apply_errored_directory_and_refresh(Path(app_data['file_path_name']))
+	dpg.set_value("errored_dir_text", config.get_property("errored_data_folder"))
+
+
 with dpg.texture_registry(show=False):
 	add_raw_texture("bubble_grid_texture", ui_state.get_loaded_data().bubble_grid_texture_data, format=dpg.mvFormat_Float_rgb)
 
@@ -903,6 +917,14 @@ with dpg.texture_registry(show=False):
 with dpg.item_handler_registry(tag="image_handler"):
 	dpg.add_item_clicked_handler(callback=on_main_frame_clicked)
 
+dpg.add_file_dialog(
+    directory_selector=True, show=False, callback=on_scan_directory_chosen, tag="to_process_file_dialog_id", width=700 ,height=400)
+
+dpg.add_file_dialog(
+    directory_selector=True, show=False, callback=on_processed_directory_chosen, tag="processed_file_dialog_id", width=700 ,height=400)
+
+dpg.add_file_dialog(
+    directory_selector=True, show=False, callback=on_errored_directory_chosen, tag="errored_file_dialog_id", width=700 ,height=400)
 
 with dpg.window(label="resultstester", tag="mainWindow"):
 	with dpg.table(header_row=False):
@@ -933,9 +955,12 @@ with dpg.window(label="resultstester", tag="mainWindow"):
 						dpg.add_button(label="export to ground truth", tag="export_ground_truth_button", callback=export_to_ground_truth)
 						dpg.add_button(label="Show Debug Screen", tag="show_debug_button", callback=show_debug_screen)
 						dpg.add_spacer(height=15)
-						dpg.add_text("Scan directory")
-						dpg.add_input_text(tag="scan_dir_input", default_value=str(ui_state.get_ui_state().to_process_data_folder), width=240)
-						dpg.add_button(label="Apply + Refresh", callback=apply_scan_directory_and_refresh)
+						dpg.add_text(str(ui_state.get_ui_state().to_process_data_folder), tag="scan_dir_text")
+						dpg.add_button(label="Choose scanning directory", callback=lambda: dpg.show_item("to_process_file_dialog_id"))
+						dpg.add_text(str(ui_state.get_ui_state().processed_data_folder), tag="processed_dir_text")
+						dpg.add_button(label="Choose processed directory", callback=lambda: dpg.show_item("processed_file_dialog_id"))
+						dpg.add_text(str(ui_state.get_ui_state().errored_data_folder), tag="errored_dir_text")
+						dpg.add_button(label="Choose errored directory", callback=lambda: dpg.show_item("errored_file_dialog_id"))
 						dpg.add_button(label="Refresh Queue", callback=refresh_file_queue)
 						dpg.add_spacer(height=15)
 						dpg.add_text("Queue: 0 file(s)", tag="queue_count_text")

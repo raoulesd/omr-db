@@ -112,3 +112,21 @@ def print_properties():
             print(f"{key}: {value}")
     else:
         print("No active system config set")
+
+def update_active_system_config_property(property_name: str, property_value):
+    """Updates a specific property in the active system config. If the property does not exist in the active system config, it will be added. This does not affect the active config.
+    """
+    global ACTIVE_SYSTEM_CONFIG
+    if ACTIVE_SYSTEM_CONFIG is None:
+        ACTIVE_SYSTEM_CONFIG = {}
+
+    ACTIVE_SYSTEM_CONFIG[property_name] = property_value
+
+    # Write the config to the disk
+    if ACTIVE_SYSTEM_CONFIG_NAME is not None:
+        config_path = CONFIG_DIR / (ACTIVE_SYSTEM_CONFIG_NAME + ".json")
+        with config_path.open("w") as f:
+            json.dump(ACTIVE_SYSTEM_CONFIG, f, indent=4)
+
+    
+

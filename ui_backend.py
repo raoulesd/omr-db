@@ -357,8 +357,6 @@ def load_file(candidate):
 		frontend.set_status(f"Loaded: {Path(filename).name}")
 	return True
 
-
-
 def on_queue_file_selected(sender, app_data, user_data):
 	selected_path = user_data
 	if not selected_path:
@@ -522,6 +520,10 @@ def refresh_file_queue(sender=None, app_data=None):
 		load_file(get_ui_state().file_list[0])
 
 def apply_scan_directory_and_refresh(new_directory):
+	new_directory_string = str(new_directory.relative_to(config.PROJECT_ROOT))
+	print(f"Applying new scan directory: {new_directory_string}")
+	config.update_active_system_config_property("scanning_data_folder", new_directory_string)
+
 	get_ui_state().to_process_data_folder = new_directory
 	get_ui_state().processing_data_folder = get_ui_state().to_process_data_folder.parent / f"processing_{ui_state.get_ui_state().instance_id}"
 	if not get_ui_state().to_process_data_folder.exists():
@@ -532,4 +534,26 @@ def apply_scan_directory_and_refresh(new_directory):
 	get_ui_state().queue_error_scan_has_run = False
 	frontend.set_error_check_progress(0, 0, is_running=False)
 	frontend.set_status(f"Using scan directory: {get_ui_state().to_process_data_folder} | Instance claim folder: {get_ui_state().processing_data_folder.name}")
+	refresh_file_queue()
+
+def apply_processed_directory_and_refresh(new_directory):
+	new_directory_string = str(new_directory.relative_to(config.PROJECT_ROOT))
+	print(f"Applying new processed directory: {new_directory_string}")
+	config.update_active_system_config_property("processed_data_folder", new_directory_string)
+
+	get_ui_state().processed_data_folder = new_directory
+	if not get_ui_state().processed_data_folder.exists():
+		get_ui_state().processed_data_folder.mkdir(parents=True, exist_ok=True)
+	frontend.set_status(f"Using processed directory: {get_ui_state().processed_data_folder}")
+	refresh_file_queue()
+
+def apply_errored_directory_and_refresh(new_directory):
+	new_directory_string = str(new_directory.relative_to(config.PROJECT_ROOT))
+	print(f"Applying new errored directory: {new_directory_string}")
+	config.update_active_system_config_property("errored_data_folder", new_directory_string)
+
+	get_ui_state().errored_data_folder = new_directory
+	if not get_ui_state().errored_data_folder.exists():
+		get_ui_state().errored_data_folder.mkdir(parents=True, exist_ok=True)
+	frontend.set_status(f"Using errored directory: {get_ui_state().errored_data_folder}")
 	refresh_file_queue()
