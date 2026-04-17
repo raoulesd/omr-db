@@ -932,10 +932,16 @@ with dpg.window(label="resultstester", tag="mainWindow"):
 		dpg.add_table_column(width_fixed=True, init_width_or_weight=float(ui_state.get_loaded_data().side_panel_width))
 		with dpg.table_row():
 			with dpg.table_cell():
-				dpg.add_image("bubble_grid_texture", tag="main_image")
+				with dpg.group():
+					dpg.add_image("bubble_grid_texture", tag="main_image")
+					dpg.add_image("name_texture")
+					if "category" in config.get_property("included_regions"):
+						dpg.add_image("category_texture")
 			with dpg.table_cell():
 				with dpg.group(horizontal=True):
-					dpg.add_image("zones_and_tops_texture")
+					with dpg.group():
+						dpg.add_image("zones_and_tops_texture")
+						dpg.add_image("attempts_total_texture")
 					dpg.add_spacer(width=ui_state.get_loaded_data().controls_panel_gap)
 					with dpg.group():
 						dpg.add_text(f"UI Instance: {ui_state.get_ui_state().instance_id}")
@@ -979,14 +985,6 @@ with dpg.window(label="resultstester", tag="mainWindow"):
 						dpg.add_button(label="Error check ALL (will stall UI)", tag="error_check_all_button", callback=error_check_all_queued_files)
 						dpg.add_text("Error check idle", tag="error_check_progress_text", wrap=240)
 						dpg.add_progress_bar(default_value=0.0, tag="error_check_progress_bar", width=240, overlay="0 / 0")
-		with dpg.table_row():
-			with dpg.table_cell():
-				dpg.add_image("name_texture")
-				if "category" in config.get_property("included_regions"):
-					dpg.add_image("category_texture")
-			with dpg.table_cell():
-				with dpg.group(horizontal=True):
-					dpg.add_image("attempts_total_texture")
 
 show_loading_state("Starting up...")
 set_status(f"Instance {ui_state.get_ui_state().instance_id} using claim folder: {ui_state.get_ui_state().processing_data_folder.name}")
