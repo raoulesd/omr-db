@@ -9,7 +9,7 @@ import tesseract_ocr
 
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
-CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "db9-2025")
+CONFIG_FILE_NAME = os.getenv("OMR_CONFIG_NAME", "db9xl")
 
 frontend = None
 
