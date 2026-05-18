@@ -23,3 +23,7 @@ python test_grader.py -i test_forms\a.png
 ```
 
 The UI can be run by executing the command `run` in the root directory (recommended).
+
+## For developers:
+Make sure to use the linter when programming to enforce proper formatting and code conventions
+To check your code, use `ruff check`

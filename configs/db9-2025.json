@@ -1,0 +1,104 @@
+{
+    "config_name": "db9-2025",
+    "use_name_detection": false,
+    "use_gender_detection": false,
+    "use_age_detection": false,
+    "num_attempts": 9,
+    "num_boulders": 20,
+    "included_regions": [
+        "user_info",
+        "attempt_score",
+        "boulder_score",
+        "total_scores"
+    ],
+    "region_original_sizes": {
+        "user_info": [
+            1172.5,
+            390.0
+        ],
+        "attempt_score": [
+            1695.0,
+            962.5
+        ],
+        "boulder_score": [
+            430.0,
+            960.0
+        ],
+        "total_scores": [
+            565.0,
+            245.0
+        ],
+        "full_page": [
+            2481,
+            3506
+        ]
+    },
+    "has_age_categories": false,
+    "age_categories": [
+        "N/A"
+    ],
+    "zones_and_tops_indication": [
+        "zones",
+        "tops",
+        "att_z",
+        "att_t"
+    ],
+    "default_marker_positions": [
+        [
+            0.053204353083434096,
+            0.08984597832287507
+        ],
+        [
+            0.9177750906892382,
+            0.08956075299486595
+        ],
+        [
+            0.9173720274083031,
+            0.7561323445521962
+        ],
+        [
+            0.05280128980249899,
+            0.7558471192241871
+        ]
+    ],
+    "user_info_region": [
+        [
+            0.37389277389277387,
+            -0.05053531336828392
+        ],
+        [
+            0.9202797202797203,
+            0.11648817996756972
+        ]
+    ],
+    "attempt_score_region": [
+        [
+            0.028904428904428906,
+            0.20128472273808
+        ],
+        [
+            0.8191142191142191,
+            0.6132760062998523
+        ]
+    ],
+    "boulder_score_region": [
+        [
+            0.8713286713286713,
+            0.20128472273808
+        ],
+        [
+            1.0717948717948718,
+            0.6124194755647967
+        ]
+    ],
+    "total_scores_region": [
+        [
+            0.8177156177156177,
+            0.8702352268165502
+        ],
+        [
+            1.0811188811188812,
+            0.9751602418608686
+        ]
+    ]
+}

@@ -7,3 +7,4 @@ dearpygui
 pytesseract
 pandas
 ipykernel
+ruff
