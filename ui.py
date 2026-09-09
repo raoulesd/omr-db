@@ -717,6 +717,10 @@ def set_category_and_gender(is_male, age_cat):
 	if age_cat is not None and dpg.does_item_exist("age_category"):
 		dpg.set_value("age_category", age_cat)
 
+def set_international_comp_score(score):
+	if dpg.does_item_exist("international_comp_score"):
+		dpg.set_value("international_comp_score", f"International score: {score:.1f}")
+
 def draw_category_data(frame):
 	if not ui_state.get_loaded_data().has_category_area:
 		return
@@ -956,6 +960,7 @@ with dpg.window(label="resultstester", tag="mainWindow"):
 						with dpg.group(horizontal=True):
 							dpg.add_text("Category:")
 							dpg.add_combo(config.get_property("age_categories"), tag="age_category", default_value=config.get_property("age_categories")[0], width=80)
+						dpg.add_text("International score: nan", tag="international_comp_score")
 						dpg.add_spacer(height=15)
 						dpg.add_button(label="export", tag="export_button", callback=export_to_csv)
 						dpg.add_button(label="export to ground truth", tag="export_ground_truth_button", callback=export_to_ground_truth)

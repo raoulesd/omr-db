@@ -15,6 +15,24 @@ class GradingDebugError(RuntimeError):
 		super().__init__(message)
 		self.debug_steps = debug_steps if debug_steps is not None else []
 
+def get_international_score(per_boulder_zones_tops):
+	"""Calculate the international competition score based on the number of attempts for zones and tops for each boulder.
+	Each top is worth 25 points, and each zone is worth 10 points. Each additional try costs 0.1 points.
+	"""
+
+	total_score = 0.0
+
+	for (zone_attempts, top_attempts) in per_boulder_zones_tops:
+		if top_attempts is not None:
+			# Each top is worth 25 points, and each zone is worth 10 points. Each additional try costs 0.1 points.
+			score = 25 - (top_attempts - 1) * 0.1
+			total_score += score
+		elif zone_attempts is not None:
+			score = 10 - (zone_attempts - 1) * 0.1
+			total_score += score
+
+	return total_score
+		
 
 def get_amounts_and_tries(cell_data):
 	"""Calculate the total number of zones and tops achieved, as well as the total number of attempts for zones and tops, based on the cell data from the bubble grid.

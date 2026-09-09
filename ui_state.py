@@ -22,6 +22,7 @@ class LoadedScoreSheetData:
 		self.tries_zones_tops = None
 		self.per_boulder_zones_tops = None
 		self.cell_data = None
+		self.international_comp_score = None
 
 		# Display data (textures)
 
@@ -93,6 +94,7 @@ class LoadedScoreSheetData:
 		"""Recomputes derived data like amount_zones_tops and tries_zones_tops based on the current state of cell_data. This can be called after multiple cell updates if compute_derived_data was set to False in those updates to avoid redundant computations."""
 		if self.cell_data is not None:
 			self.amount_zones_tops, self.tries_zones_tops, self.per_boulder_zones_tops = grader.get_amounts_and_tries(self.cell_data)
+			self.international_comp_score = grader.get_international_score(self.per_boulder_zones_tops)
 
 	def clear_textures(self):
 		if self.full_page_texture_data is not None:

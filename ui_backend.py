@@ -101,7 +101,7 @@ def write_results_to_csv(name, contestant_number, gender, age_category):
 	if get_ui_state().output_csv_file.tell() == 0:
 		header = "Name,Number,Gender,Category,Filename,"
 		header += ",".join([f"Boulder {i+1}" for i in range(config.get_property("num_boulders"))]) + ","
-		header += "Tops,Zones,Top Attempts,Zone Attempts\n"
+		header += "Tops,Zones,Top Attempts,Zone Attempts,CompScore\n"
 		get_ui_state().output_csv_file.write(header)
 		get_ui_state().output_csv_file.flush()
 
@@ -121,6 +121,9 @@ def write_results_to_csv(name, contestant_number, gender, age_category):
 		export_string += f",B{i + 1} T{top}Z{zone}"
 	export_string += f",{get_loaded_data().amount_zones_tops[1]},{get_loaded_data().amount_zones_tops[0]}"
 	export_string += f",{get_loaded_data().tries_zones_tops[1]},{get_loaded_data().tries_zones_tops[0]}"
+
+	# write the international competition score (comp score) to the CSV file
+	export_string += f",{get_loaded_data().international_comp_score:.1f}\n"
 	get_ui_state().output_csv_file.write(f"{export_string}\n")
 	get_ui_state().output_csv_file.flush()
 
@@ -240,6 +243,7 @@ def on_bubble_image_click(clicked_x, clicked_y):
 	else:
 		get_loaded_data().set_cell_value(closest_row, closest_col, 1)
 
+	get_loaded_data().compute_derived_data()
 
 	draw_textures_on_frontend()
 
@@ -279,6 +283,8 @@ def draw_textures_on_frontend():
 		name_area_image=get_loaded_data().name_texture_data,
 		category_area_image=get_loaded_data().category_texture_data,
 	)
+
+	frontend.set_international_comp_score(get_loaded_data().international_comp_score)
 
 
 def load_file(candidate):
