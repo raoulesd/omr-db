@@ -1,5 +1,5 @@
 {
-    "scanning_data_folder": "process_data\\to_process",
+    "scanning_data_folder": "D:\\",
     "processed_data_folder": "./process_data/processed",
     "errored_data_folder": "./process_data/errored",
     "results_csv_path": "./results.csv",

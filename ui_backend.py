@@ -525,8 +525,14 @@ def refresh_file_queue(sender=None, app_data=None):
 	if had_empty_state and len(get_ui_state().file_list) > 0 and get_loaded_data().filename is None:
 		load_file(get_ui_state().file_list[0])
 
+def get_relative_or_other_drive_absolute(path, root):
+	try:
+		return path.relative_to(root)
+	except ValueError:
+		return path.absolute()
+
 def apply_scan_directory_and_refresh(new_directory):
-	new_directory_string = str(new_directory.relative_to(config.PROJECT_ROOT))
+	new_directory_string = str(get_relative_or_other_drive_absolute(new_directory, config.PROJECT_ROOT))
 	print(f"Applying new scan directory: {new_directory_string}")
 	config.update_active_system_config_property("scanning_data_folder", new_directory_string)
 
@@ -543,7 +549,7 @@ def apply_scan_directory_and_refresh(new_directory):
 	refresh_file_queue()
 
 def apply_processed_directory_and_refresh(new_directory):
-	new_directory_string = str(new_directory.relative_to(config.PROJECT_ROOT))
+	new_directory_string = str(get_relative_or_other_drive_absolute(new_directory, config.PROJECT_ROOT))
 	print(f"Applying new processed directory: {new_directory_string}")
 	config.update_active_system_config_property("processed_data_folder", new_directory_string)
 
@@ -554,7 +560,7 @@ def apply_processed_directory_and_refresh(new_directory):
 	refresh_file_queue()
 
 def apply_errored_directory_and_refresh(new_directory):
-	new_directory_string = str(new_directory.relative_to(config.PROJECT_ROOT))
+	new_directory_string = str(get_relative_or_other_drive_absolute(new_directory, config.PROJECT_ROOT))
 	print(f"Applying new errored directory: {new_directory_string}")
 	config.update_active_system_config_property("errored_data_folder", new_directory_string)
 
