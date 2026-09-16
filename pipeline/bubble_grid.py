@@ -1,38 +1,42 @@
+"""bubble_grid.py contains functions for detecting bubble contours in the warped grayscale image of the bubble area, computing the grid layout of the detected bubbles by clustering their centroids into rows and columns using K-means, and estimating the median bubble size for later use in scoring. The main functions are detect_bubbles for finding contours that correspond to bubbles based on shape features, compute_bubble_grid for clustering the detected contours into a grid and attaching row/column indices to each bubble, and plot_bubble_grid for visualizing the detected grid on the image.
+"""
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-from imutils.perspective import four_point_transform
-from imutils import contours
 import imutils
-from configs import config as app_config
+from configs import config
 
-def compute_bubble_grid(questionCnts, thresh2, warped_u8, debug_steps=None):
-	"""
-	Computes the grid layout of the detected bubble contours by clustering their centroids into ROWS and COLS using K-means.
+def compute_bubble_grid(question_contours, bubble_area_image, debug_steps=None):
+	"""Computes the grid layout of the detected bubble contours by clustering their centroids into ROWS and COLS using K-means.
 	Also estimates the median bubble size for later use in scoring.
-	
-	:param questionCnts: List of contours corresponding to detected bubbles
-	:param thresh2: Binary image used for contour detection (white=ink/pencil)
-	:param warped_u8: Warped grayscale image normalized to uint8 (0..255)
-	"""
 
-	cfg = app_config.get_active_config()
-	rows = cfg.ROWS
-	cols = cfg.COLS
+	:param question_contours: List of contours corresponding to detected bubbles
+	:param bubble_area_image: Image of the bubble area normalized to uint8 (0..255)
+
+	:return: Tuple of (bubbles, row_centers_sorted, col_centers_sorted, median_bubble_size)
+
+		- bubbles: List of dicts with keys: c (contour), cx, cy, w, h, area, row, col
+		- row_centers_sorted: Sorted array of row center positions
+		- col_centers_sorted: Sorted array of column center positions
+		- median_bubble_size: Tuple of (median_width, median_height)
+	"""
+	rows = config.get_property("num_boulders")
+	cols = config.get_property("num_attempts") * config.get_property("num_answers")
 
 	# 3 groups * 9 columns
 
 	# --- 1) Compute centroids + basic size estimate
 	bubbles = []
-	for c in questionCnts:
+	for c in question_contours:
 		area = cv2.contourArea(c)
 		if area <= 0:
 			continue
-		M = cv2.moments(c)
-		if M["m00"] == 0:
+		m = cv2.moments(c)
+		if m["m00"] == 0:
 			continue
-		cx = M["m10"] / M["m00"]
-		cy = M["m01"] / M["m00"]
+		cx = m["m10"] / m["m00"]
+		cy = m["m01"] / m["m00"]
 		x, y, w, h = cv2.boundingRect(c)
 		bubbles.append({
 			"c": c,
@@ -44,10 +48,13 @@ def compute_bubble_grid(questionCnts, thresh2, warped_u8, debug_steps=None):
 		})
 
 	if len(bubbles) < 10:
-		raise RuntimeError("Too few bubble contours found to infer a grid.")
+		error_message = f"Too few bubble contours found to infer a grid. Found: {len(bubbles)} contours."
+		raise RuntimeError(error_message)
 
 	med_w = int(np.median([b["w"] for b in bubbles]))
 	med_h = int(np.median([b["h"] for b in bubbles]))
+
+	median_bubble_size = (med_w, med_h)
 
 	# K-means cluster centroids into ROWS and COLS
 	ys = np.array([[b["cy"]] for b in bubbles], dtype=np.float32)
@@ -81,42 +88,38 @@ def compute_bubble_grid(questionCnts, thresh2, warped_u8, debug_steps=None):
 		b["col"] = col_map[int(col_labels[i][0])]
 
 	if debug_steps is not None:
-		overlay = cv2.cvtColor(warped_u8.copy(), cv2.COLOR_GRAY2BGR)
+		overlay = cv2.cvtColor(bubble_area_image.copy(), cv2.COLOR_GRAY2BGR)
 		for y in row_centers_sorted:
 			cv2.line(overlay, (0, int(y)), (overlay.shape[1], int(y)), (0, 255, 0), 1)
 		for x in col_centers_sorted:
 			cv2.line(overlay, (int(x), 0), (int(x), overlay.shape[0]), (255, 0, 0), 1)
 		debug_steps.append(("Bubble Grid - Row/Col Centers", overlay))
-	return bubbles, row_centers_sorted, col_centers_sorted, med_w, med_h, crit
+	return bubbles, row_centers_sorted, col_centers_sorted, median_bubble_size
 
 
 
 
-def detect_bubbles(warped, debug_steps=None):
+def detect_bubbles(bubble_area_image, debug_steps=None):
+	"""Detects bubbles in the warped grayscale image
+
+	:param rectified_cropped_bubble_area: Warped grayscale image of the question area
+	:return: Tuple of (question_contours, bubble_area_image)
+			- question_contours: List of contours corresponding to detected bubbles
 	"""
-	Detects bubble contours in the warped grayscale image of the question area.
-	
-	:param warped: Warped grayscale image of the question area
-	:return: Tuple of (questionCnts, thresh2, warped_u8)
-			- questionCnts: List of contours corresponding to detected bubbles
-			- thresh2: Binary image used for contour detection (white=ink/pencil)
-			- warped_u8: Warped grayscale image normalized to uint8 (0..255)
-	"""
+	circularity_min = config.get_property("circularity")
+	extent_min = config.get_property("extent")
+	hull_min = config.get_property("hull")
+	debug_mode = config.get_property("debug_mode")
 
-	cfg = app_config.get_active_config()
-	circularity_min = cfg.circularity
-	extent_min = cfg.extent
-	hull_min = cfg.hull
-	debug_mode = cfg.debug_mode
+	# 1) Threshold (make sure bubble_area_image_u8 is 8-bit single channel)
+	if bubble_area_image.dtype != np.uint8:
+		bubble_area_image = cv2.normalize(bubble_area_image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
-	# 1) Threshold (make sure warped is 8-bit single channel)
-	if warped.dtype != np.uint8:
-		warped_u8 = cv2.normalize(warped, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-	else:
-		warped_u8 = warped
+	# bubble_area_image must be single-channel grayscale for the thresholding and contour steps
+	assert len(bubble_area_image.shape) == 2, "Bubble area image must be single-channel grayscale"
 
 	# blur helps a lot for pencil texture
-	enhanced = cv2.GaussianBlur(warped_u8, (5, 5), 0)
+	enhanced = cv2.GaussianBlur(bubble_area_image, (5, 5), 0)
 
 
 	thresh2 = cv2.adaptiveThreshold(
@@ -144,10 +147,9 @@ def detect_bubbles(warped, debug_steps=None):
 		cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
 		iterations=1
 	)
-	4
+
 	# Optional: if the page border is thick / present, clear a small margin
 	# so it cannot appear as one giant contour
-	h, w = thresh2.shape[:2]
 	margin = 5
 	thresh2[:margin, :] = 0
 	thresh2[-margin:, :] = 0
@@ -164,9 +166,7 @@ def detect_bubbles(warped, debug_steps=None):
 
 	hierarchy = hierarchy[0]  # (N, 4): [next, prev, first_child, parent]
 
-	questionCnts = []
-
-	img_area = h * w
+	question_contours = []
 
 	for i, c in enumerate(cnts):
 
@@ -180,7 +180,7 @@ def detect_bubbles(warped, debug_steps=None):
 		if area < 30:
 			continue
 
-		x, y, cw, ch = cv2.boundingRect(c)
+		_x, _y, cw, ch = cv2.boundingRect(c)
 		ar = cw / float(ch)
 
 		# keep your size/aspect gate (tune)
@@ -203,7 +203,7 @@ def detect_bubbles(warped, debug_steps=None):
 		if hull_area == 0:
 			continue
 		solidity = area / float(hull_area)
-		
+
 
 		# ---- Tune these thresholds ----
 		# Good starting points for "0"-like blobs:
@@ -214,23 +214,23 @@ def detect_bubbles(warped, debug_steps=None):
 		if solidity < hull_min:
 			continue
 
-		questionCnts.append(c)
+		question_contours.append(c)
 
 	if debug_mode:
-		print(f"Detected bubble-like contours: {len(questionCnts)}")
+		print(f"Detected bubble-like contours: {len(question_contours)}")
 
 	if debug_steps is not None:
-		overlay = cv2.cvtColor(warped_u8.copy(), cv2.COLOR_GRAY2BGR)
-		cv2.drawContours(overlay, questionCnts, -1, (0, 0, 255), 1)
+		overlay = cv2.cvtColor(bubble_area_image.copy(), cv2.COLOR_GRAY2BGR)
+		cv2.drawContours(overlay, question_contours, -1, (0, 0, 255), 1)
 		debug_steps.append(("Bubble Detection - Filtered Contours", overlay))
 
-	return questionCnts, thresh2, warped_u8
+	return question_contours
 
 
 
 
 
-def plot_bubble_grid(paper, bubbles, row_centers, col_centers, med_w, med_h, warped_u8):
+def plot_bubble_grid(paper, row_centers, col_centers):
 	# Show the result of the grid detection by drawing a vertical line for each column and a horizontal line for each row
 	paper = paper.copy()
 	for row in row_centers:
@@ -240,6 +240,6 @@ def plot_bubble_grid(paper, bubbles, row_centers, col_centers, med_w, med_h, war
 
 	plt.figure(figsize=(8, 10))
 	plt.imshow(cv2.cvtColor(paper, cv2.COLOR_BGR2RGB))
-	plt.title(f"Detected Bubble Grid")
+	plt.title("Detected Bubble Grid")
 	plt.axis("off")
 	plt.show()

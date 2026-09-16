@@ -14,7 +14,9 @@ def parse_bool(v):
 		return True
 	if v in {"0", "false", "f", "no", "n", "off"}:
 		return False
-	raise argparse.ArgumentTypeError("debug_mode must be true/false")
+
+	error_message = f"Boolean value expected for debug_mode (true/false), got: {v}"
+	raise argparse.ArgumentTypeError(error_message)
 
 # Arguement parser to get the image path from command line
 ap = argparse.ArgumentParser()
