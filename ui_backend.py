@@ -95,20 +95,25 @@ def restore_processing_folder_on_exit():
 		pass
 
 
+def float_to_string(value, num_decimals, decimal_character=","):
+	return f"{value:.{num_decimals}f}".replace(".", decimal_character)
+
 def write_results_to_csv(name, contestant_number, gender, age_category):
+
+	csv_delimiter = ";"
 
 	# Check if we are the first to write to this file (check empty)
 	if get_ui_state().output_csv_file.tell() == 0:
-		header = "Name,Number,Gender,Category,Filename,"
-		header += ",".join([f"Boulder {i+1}" for i in range(config.get_property("num_boulders"))]) + ","
-		header += "Tops,Zones,Top Attempts,Zone Attempts,CompScore\n"
+		header = f"Name{csv_delimiter}Number{csv_delimiter}Gender{csv_delimiter}Category{csv_delimiter}Filename{csv_delimiter}"
+		header += csv_delimiter.join([f"Boulder {i+1}" for i in range(config.get_property("num_boulders"))]) + csv_delimiter
+		header += f"Tops{csv_delimiter}Zones{csv_delimiter}Top Attempts{csv_delimiter}Zone Attempts{csv_delimiter}CompScore\n"
 		get_ui_state().output_csv_file.write(header)
 		get_ui_state().output_csv_file.flush()
 
-	export_string = f"{name},"
-	export_string += f"{contestant_number},"
-	export_string += f"{gender},"
-	export_string += f"{age_category},"
+	export_string = f"{name}{csv_delimiter}"
+	export_string += f"{contestant_number}{csv_delimiter}"
+	export_string += f"{gender}{csv_delimiter}"
+	export_string += f"{age_category}{csv_delimiter}"
 	file_path = Path(get_loaded_data().filename)
 	only_file_name = file_path.name
 	export_string += only_file_name
@@ -118,12 +123,12 @@ def write_results_to_csv(name, contestant_number, gender, age_category):
 			zone = 0
 		if top is None:
 			top = 0
-		export_string += f",B{i + 1} T{top}Z{zone}"
-	export_string += f",{get_loaded_data().amount_zones_tops[1]},{get_loaded_data().amount_zones_tops[0]}"
-	export_string += f",{get_loaded_data().tries_zones_tops[1]},{get_loaded_data().tries_zones_tops[0]}"
+		export_string += f"{csv_delimiter}B{i + 1} T{top}Z{zone}"
+	export_string += f"{csv_delimiter}{get_loaded_data().amount_zones_tops[1]}{csv_delimiter}{get_loaded_data().amount_zones_tops[0]}"
+	export_string += f"{csv_delimiter}{get_loaded_data().tries_zones_tops[1]}{csv_delimiter}{get_loaded_data().tries_zones_tops[0]}"
 
 	# write the international competition score (comp score) to the CSV file
-	export_string += f",{get_loaded_data().international_comp_score:.1f}\n"
+	export_string += f"{csv_delimiter}{float_to_string(get_loaded_data().international_comp_score, 1, decimal_character=',')}\n"
 	get_ui_state().output_csv_file.write(f"{export_string}\n")
 	get_ui_state().output_csv_file.flush()
 
