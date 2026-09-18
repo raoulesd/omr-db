@@ -3,6 +3,7 @@ venv/
 
 results.csv
 /results/
+/configs/system_config.json
 
 # Ignore all PNG files in the test_forms directory
 test_forms/**/*.png
@@ -11,3 +12,4 @@ process_data/**/*.png
 results.csv
 results_db9xl.csv
 *.zip
+
